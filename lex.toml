@@ -4,7 +4,7 @@ version = "0.1.0"
 lex     = "0.9.7"
 
 [dependencies]
-lex-oms    = { path = "../lex-oms" }
+lex-oms    = { git = "https://github.com/alpibrusl/lex-oms" }
 lex-trail  = { git = "https://github.com/alpibrusl/lex-trail" }
 lex-orm    = { git = "https://github.com/alpibrusl/lex-orm" }
 lex-llm    = { git = "https://github.com/alpibrusl/lex-llm" }
