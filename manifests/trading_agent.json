@@ -1,0 +1,27 @@
+{
+  "goal": {
+    "description": "You are a trading agent connected to an equity OMS at http://127.0.0.1:8080. Build a balanced portfolio by submitting buy orders for allowed symbols. Constraints: allowed_symbols=[AAPL,MSFT,NVDA], max_order_qty=100, max_orders_per_session=10. After each order, verify it appears on the blotter. Check risk before signalling done. Signal done when you have submitted orders for at least 2 distinct symbols and the risk snapshot shows non-zero gross notional.",
+    "done_signal": "GOAL_MET"
+  },
+  "grant": {
+    "allowed_commands": ["net.fetch"],
+    "egress_allowlist": [
+      "http://127.0.0.1:8080/orders",
+      "http://127.0.0.1:8080/cancel",
+      "http://127.0.0.1:8080/replace",
+      "http://127.0.0.1:8080/blotter",
+      "http://127.0.0.1:8080/positions",
+      "http://127.0.0.1:8080/risk",
+      "http://127.0.0.1:8080/audit",
+      "http://127.0.0.1:8080/queue/tick"
+    ]
+  },
+  "budgets": {
+    "wall_clock_secs": 300,
+    "max_commands": 30,
+    "max_money_cents": null,
+    "max_api_calls": 15
+  },
+  "isolation": "Namespace",
+  "id": null
+}
