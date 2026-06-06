@@ -55,6 +55,11 @@ fn run_with_llm(ctx :: AgentCtx, decide :: (List[Step]) -> [net, llm] tool.Tool)
   step_loop_llm(ctx, decide, [], 0)
 }
 
+# LLM-backed variant that also returns the full step history (for fill simulation etc).
+fn run_with_llm_history(ctx :: AgentCtx, decide :: (List[Step]) -> [net, llm] tool.Tool) -> [sql, time, crypto, net, llm] (AgentResult, List[Step]) {
+  step_loop_llm_history(ctx, decide, [], 0)
+}
+
 # ---- Internal loop --------------------------------------------------
 
 fn step_loop(ctx :: AgentCtx, decide :: (List[Step]) -> tool.Tool, history :: List[Step], n :: Int) -> [sql, time, crypto] AgentResult {
@@ -102,6 +107,31 @@ fn step_loop_llm(ctx :: AgentCtx, decide :: (List[Step]) -> [net, llm] tool.Tool
         }
         let entry := { step: n, tool: t, outcome: outcome, trail_id: trail_id }
         step_loop_llm(ctx, decide, list.concat(history, [entry]), n + 1)
+      },
+    }
+  }
+}
+
+fn step_loop_llm_history(ctx :: AgentCtx, decide :: (List[Step]) -> [net, llm] tool.Tool, history :: List[Step], n :: Int) -> [sql, time, crypto, net, llm] (AgentResult, List[Step]) {
+  if n >= ctx.max_steps {
+    let __tr := trail_log.append(ctx.log, kinds.budget_exhausted(), None, "{\"steps_taken\":" + int.to_str(n) + "}")
+    (StepLimitReached(n), history)
+  } else {
+    let t := decide(history)
+    match t {
+      AgentDone(reason) => {
+        let __tr := trail_log.append(ctx.log, kinds.goal_met(), None, "{\"reason\":\"" + str.replace(reason, "\"", "'") + "\"}")
+        (GoalMet(reason), history)
+      },
+      _ => {
+        let outcome := tool.dispatch(ctx.db, ctx.log, t)
+        let payload := make_payload(n, t, outcome)
+        let trail_id := match trail_log.append(ctx.log, kinds.decision_made(), None, payload) {
+          Ok(evt) => evt.id,
+          Err(_) => "",
+        }
+        let entry := { step: n, tool: t, outcome: outcome, trail_id: trail_id }
+        step_loop_llm_history(ctx, decide, list.concat(history, [entry]), n + 1)
       },
     }
   }
