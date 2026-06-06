@@ -6,8 +6,8 @@
 # Providers:
 #   ANTHROPIC_API_KEY              → Claude (claude-haiku by default; set
 #                                    ANTHROPIC_MODEL=claude-sonnet-4-6 for Sonnet)
-#   VERTEX_PROJECT + VERTEX_REGION + VERTEX_TOKEN (Bearer) OR VERTEX_API_KEY
-#                                  → Gemini 3.5 on Vertex AI
+#   VERTEX_PROJECT + VERTEX_TOKEN (Bearer) OR VERTEX_API_KEY
+#                                  → Gemini 3.5 on Vertex AI (VERTEX_LOCATION optional, default "eu")
 #
 # Set LLM_PROVIDER=anthropic (default) or vertex to select the backend.
 #
@@ -18,7 +18,7 @@
 #
 # For Vertex AI:
 #   LLM_PROVIDER=vertex \
-#   VERTEX_PROJECT=my-project VERTEX_REGION=us-central1 VERTEX_TOKEN=ya29... \
+#   VERTEX_PROJECT=my-project VERTEX_TOKEN=ya29... \
 #   lex run --allow-effects concurrent,crypto,env,fs_read,fs_write,io,llm,net,proc,random,sql,time \
 #           examples/llm_agent.lex main
 
@@ -53,14 +53,15 @@ fn make_anthropic_provider() -> [env] prov.Provider {
 }
 
 fn make_vertex_provider() -> [env] prov.Provider {
-  let project := get_env("VERTEX_PROJECT")
-  let region  := get_env("VERTEX_REGION")
-  let token   := get_env("VERTEX_TOKEN")
-  let api_key := get_env("VERTEX_API_KEY")
-  let cfg := if str.is_empty(token) {
-    vertex.api_key_config(project, region, api_key)
+  let project      := get_env("VERTEX_PROJECT")
+  let location     := get_env("VERTEX_LOCATION")
+  let token        := get_env("VERTEX_TOKEN")
+  let api_key      := get_env("VERTEX_API_KEY")
+  let access_token := if str.is_empty(token) { api_key } else { token }
+  let cfg := if str.is_empty(location) {
+    vertex.default_config(access_token, project)
   } else {
-    vertex.bearer_config(project, region, token)
+    vertex.config_at(access_token, project, location)
   }
   vertex.make_provider(cfg)
 }

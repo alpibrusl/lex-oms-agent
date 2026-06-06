@@ -50,14 +50,15 @@ fn get_env(key :: Str) -> [env] Str {
 fn select_provider() -> [env] prov.Provider {
   match get_env("LLM_PROVIDER") {
     "vertex" => {
-      let project := get_env("VERTEX_PROJECT")
-      let region  := get_env("VERTEX_REGION")
-      let token   := get_env("VERTEX_TOKEN")
-      let api_key := get_env("VERTEX_API_KEY")
-      let cfg := if str.is_empty(token) {
-        vertex.api_key_config(project, region, api_key)
+      let project      := get_env("VERTEX_PROJECT")
+      let location     := get_env("VERTEX_LOCATION")
+      let token        := get_env("VERTEX_TOKEN")
+      let api_key      := get_env("VERTEX_API_KEY")
+      let access_token := if str.is_empty(token) { api_key } else { token }
+      let cfg := if str.is_empty(location) {
+        vertex.default_config(access_token, project)
       } else {
-        vertex.bearer_config(project, region, token)
+        vertex.config_at(access_token, project, location)
       }
       vertex.make_provider(cfg)
     },

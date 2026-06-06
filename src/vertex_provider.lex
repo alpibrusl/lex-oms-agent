@@ -1,15 +1,21 @@
-# lex-agent — Google Vertex AI provider (Gemini 3.5)
+# lex-oms-agent — Google Vertex AI provider
 #
-# Uses the Vertex AI streamGenerateContent endpoint.
-# Auth: Bearer token (service account / ADC) via VERTEX_TOKEN env var,
-#       or API key via VERTEX_API_KEY env var (appended as ?key=… query param).
+# Aligns with lex-llm/src/providers/vertex.lex. Key behaviours:
 #
-# Endpoint:
-#   https://{region}-aiplatform.googleapis.com/v1/projects/{project}/
-#   locations/{region}/publishers/google/models/{model}:streamGenerateContent
+#   Multi-region endpoints ("eu", "us", "global") use the .rep.googleapis.com host:
+#     https://aiplatform.eu.rep.googleapis.com/v1/projects/.../locations/eu/...
+#   Regional codes ("europe-west1", etc.) fall back to the legacy host:
+#     https://europe-west1-aiplatform.googleapis.com/v1/...
 #
-# Request/response format is identical to the public Gemini API
-# (NDJSON-streamed candidates). The google.lex parser is reused.
+#   Auth: access_token passed as ?access_token= query param.
+#   Default location: "eu".
+#
+#   Response: eu/us endpoints return a JSON ARRAY, not NDJSON.
+#   parse_stream handles both formats.
+#
+#   Gemini 3.5 Flash on the EU endpoint omits finishReason from all chunks.
+#   A synthetic FinishDelta("stop") is appended when none is present so the
+#   agent loop's collect_response sees tool calls correctly.
 #
 # Effects: [net, llm]
 
@@ -21,46 +27,35 @@ import "lex-llm/provider" as prov
 import "lex-schema/json_value" as jv
 
 import "std.http"  as http
+import "std.bytes" as bytes
 import "std.list"  as list
 import "std.str"   as str
-import "std.map"   as map
 import "std.iter"  as iter
 
 # ---- Config ---------------------------------------------------------
 
 type VertexConfig = {
-  project   :: Str,
-  region    :: Str,
-  auth_mode :: VertexAuth,
+  access_token :: Str,
+  project_id   :: Str,
+  location     :: Str,
 }
 
-type VertexAuth = BearerToken(Str) | ApiKey(Str)
-
-fn bearer_config(project :: Str, region :: Str, token :: Str) -> VertexConfig {
-  { project: project, region: region, auth_mode: BearerToken(token) }
+fn default_config(access_token :: Str, project_id :: Str) -> VertexConfig {
+  { access_token: access_token, project_id: project_id, location: "eu" }
 }
 
-fn api_key_config(project :: Str, region :: Str, key :: Str) -> VertexConfig {
-  { project: project, region: region, auth_mode: ApiKey(key) }
+fn config_at(access_token :: Str, project_id :: Str, location :: Str) -> VertexConfig {
+  { access_token: access_token, project_id: project_id, location: location }
 }
+
+# ---- URL builder ----------------------------------------------------
 
 fn vertex_url(cfg :: VertexConfig, model :: Str) -> Str {
-  let base := str.join([
-    "https://", cfg.region, "-aiplatform.googleapis.com/v1/projects/",
-    cfg.project, "/locations/", cfg.region,
-    "/publishers/google/models/", model, ":streamGenerateContent",
-  ], "")
-  match cfg.auth_mode {
-    ApiKey(k)     => str.concat(base, str.concat("?key=", k)),
-    BearerToken(_) => base,
-  }
-}
-
-fn build_headers(cfg :: VertexConfig) -> Map[Str, Str] {
-  let base_hdrs := [("content-type", "application/json"), ("accept", "application/json")]
-  match cfg.auth_mode {
-    BearerToken(tok) => map.from_list(list.concat(base_hdrs, [("authorization", str.concat("Bearer ", tok))])),
-    ApiKey(_)        => map.from_list(base_hdrs),
+  match cfg.location {
+    "eu"     => str.join(["https://aiplatform.eu.rep.googleapis.com/v1/projects/", cfg.project_id, "/locations/eu/publishers/google/models/", model, ":streamGenerateContent?access_token=", cfg.access_token], ""),
+    "us"     => str.join(["https://aiplatform.us.rep.googleapis.com/v1/projects/", cfg.project_id, "/locations/us/publishers/google/models/", model, ":streamGenerateContent?access_token=", cfg.access_token], ""),
+    "global" => str.join(["https://aiplatform.googleapis.com/v1/projects/", cfg.project_id, "/locations/global/publishers/google/models/", model, ":streamGenerateContent?access_token=", cfg.access_token], ""),
+    loc      => str.join(["https://", loc, "-aiplatform.googleapis.com/v1/projects/", cfg.project_id, "/locations/", loc, "/publishers/google/models/", model, ":streamGenerateContent?access_token=", cfg.access_token], ""),
   }
 }
 
@@ -83,22 +78,21 @@ fn gemini_35_pro() -> prov.ModelRef {
 }
 
 fn chat(cfg :: VertexConfig, model :: prov.ModelRef, messages :: List[msg.Message], tools :: List[t.Tool]) -> [net, llm] Iter[d.Delta] {
-  let url     := vertex_url(cfg, model.model)
-  let headers := build_headers(cfg)
-  let body    := build_request(messages, tools)
-  let lines := match http.stream_lines(url, headers, body) {
-    Err(_) => [],
-    Ok(it)  => iter.to_list(it),
+  let url  := vertex_url(cfg, model.model)
+  let body := build_request(messages, tools)
+  let body_str := match http.post(url, bytes.from_str(body), "application/json") {
+    Err(_)  => "",
+    Ok(r)   => match bytes.to_str(r.body) { Err(_) => "", Ok(s) => s },
   }
-  parse_ndjson_stream(lines)
+  parse_stream(body_str)
 }
 
 # ---- Request (Gemini wire format) -----------------------------------
 
 fn build_request(messages :: List[msg.Message], tools :: List[t.Tool]) -> Str {
-  let sys_and_contents := encode_messages(messages)
-  let sys_opt  := match sys_and_contents { (s, _) => s }
-  let contents := match sys_and_contents { (_, c) => c }
+  let em       := encode_messages(messages)
+  let sys_opt  := match em { (s, _) => s }
+  let contents := match em { (_, c) => c }
   let base := [("contents", JList(contents))]
   let with_sys := match sys_opt {
     None    => base,
@@ -131,30 +125,41 @@ fn encode_content(m :: msg.Message) -> jv.Json {
         JObj([("functionCall", JObj([("name", JStr(c.name)), ("args", c.args)]))])
       })))])
     },
-    ToolMsg(call_id, content) => {
-      let fn_name      := if str.starts_with(call_id, "call_") { str.slice(call_id, 5, str.len(call_id)) } else { call_id }
-      let response_obj := JObj([("output", JStr(content))])
-      let fn_response  := JObj([("name", JStr(fn_name)), ("response", response_obj)])
-      let part         := JObj([("functionResponse", fn_response)])
-      JObj([("role", JStr("user")), ("parts", JList([part]))])
-    },
-    SystemMsg(_) => JObj([("role", JStr("user")), ("parts", JList([JObj([("text", JStr(""))])]))]),
+    ToolMsg(call_id, content) =>
+      JObj([("role", JStr("user")), ("parts", JList([JObj([("functionResponse",
+        JObj([("name", JStr(call_id)), ("response", JObj([("output", JStr(content))]))])
+      )])]))]),
+    SystemMsg(_) =>
+      JObj([("role", JStr("user")), ("parts", JList([JObj([("text", JStr(""))])]))]),
   }
 }
 
-# ---- NDJSON response parsing (Gemini format) ------------------------
+# ---- Response parsing -----------------------------------------------
+# EU/US endpoints return a JSON array; regional endpoints return NDJSON.
+# Try JSON array first; fall back to line-by-line NDJSON.
+#
+# Gemini 3.5 Flash on multi-region endpoints omits finishReason.
+# Append a synthetic FinishDelta("stop") so collect_response picks up tool calls.
 
-fn parse_ndjson_stream(lines :: List[Str]) -> Iter[d.Delta] {
-  let deltas := list.fold(lines, [], fn (acc :: List[d.Delta], line :: Str) -> List[d.Delta] {
-    let t := str.trim(line)
-    if str.is_empty(t) { acc } else {
-      match jv.parse_into_errors(t) {
-        Err(_) => acc,
-        Ok(j)  => list.concat(acc, parse_chunk(j)),
+fn parse_stream(body :: Str) -> Iter[d.Delta] {
+  let raw := match jv.parse_into_errors(body) {
+    Ok(JList(chunks)) => list.fold(chunks, [], fn (acc :: List[d.Delta], chunk :: jv.Json) -> List[d.Delta] {
+      list.concat(acc, parse_chunk(chunk))
+    }),
+    _ => list.fold(str.split(body, "\n"), [], fn (acc :: List[d.Delta], line :: Str) -> List[d.Delta] {
+      let t := str.trim(line)
+      if str.is_empty(t) { acc } else {
+        match jv.parse_into_errors(t) {
+          Err(_) => acc,
+          Ok(j)  => list.concat(acc, parse_chunk(j)),
+        }
       }
-    }
+    }),
+  }
+  let has_finish := list.fold(raw, false, fn (acc :: Bool, dl :: d.Delta) -> Bool {
+    match dl { FinishDelta(_) => true, _ => acc }
   })
-  iter.from_list(deltas)
+  iter.from_list(if has_finish { raw } else { list.concat(raw, [FinishDelta("stop")]) })
 }
 
 fn parse_chunk(j :: jv.Json) -> List[d.Delta] {
@@ -189,16 +194,16 @@ fn parse_parts(content :: jv.Json) -> List[d.Delta] {
 }
 
 fn parse_part(part :: jv.Json) -> List[d.Delta] {
-  match jv.get_field(part, "text") {
-    Some(JStr(s)) => if str.is_empty(s) { [] } else { [TextChunk(s)] },
-    _ => match jv.get_field(part, "functionCall") {
-      Some(fc) => {
-        let name := str_field(fc, "name")
-        let id   := str.concat("call_", name)
-        let args := match jv.get_field(fc, "args") { Some(aj) => jv.stringify(aj), None => "{}" }
-        [ToolCallBegin(id, name), ToolArgChunk(id, args)]
-      },
-      None => [],
+  match jv.get_field(part, "functionCall") {
+    Some(fc) => {
+      let name := str_field(fc, "name")
+      let id   := str.concat("call_", name)
+      let args := match jv.get_field(fc, "args") { Some(aj) => jv.stringify(aj), None => "{}" }
+      [ToolCallBegin(id, name), ToolArgChunk(id, args)]
+    },
+    None => match jv.get_field(part, "text") {
+      Some(JStr(s)) => if str.is_empty(s) { [] } else { [TextChunk(s)] },
+      _ => [],
     },
   }
 }
