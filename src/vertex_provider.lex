@@ -132,8 +132,9 @@ fn encode_content(m :: msg.Message) -> jv.Json {
       })))])
     },
     ToolMsg(call_id, content) => {
+      let fn_name      := if str.starts_with(call_id, "call_") { str.slice(call_id, 5, str.len(call_id)) } else { call_id }
       let response_obj := JObj([("output", JStr(content))])
-      let fn_response  := JObj([("name", JStr(call_id)), ("response", response_obj)])
+      let fn_response  := JObj([("name", JStr(fn_name)), ("response", response_obj)])
       let part         := JObj([("functionResponse", fn_response)])
       JObj([("role", JStr("user")), ("parts", JList([part]))])
     },
