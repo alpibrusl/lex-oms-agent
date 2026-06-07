@@ -23,7 +23,7 @@ Each turn the LLM receives the full conversation history and calls exactly one t
 | `cancel_order` | `cl_ord_id, orig_cl_ord_id, symbol, side` |
 | `done` | `reason` |
 
-Every step is logged to a [lex-trail](https://github.com/alpibrusl/lex-trail) audit log before the tool is dispatched. The OMS pre-trade gate (risk limits → FIX conformance) runs on every order before acceptance.
+Every step is logged to a [lex-trail](https://github.com/alpibrusl/lex-trail) audit log after the tool is dispatched. The OMS pre-trade gate (risk limits → FIX conformance) runs on every order before acceptance.
 
 ---
 
@@ -34,7 +34,7 @@ Every step is logged to a [lex-trail](https://github.com/alpibrusl/lex-trail) au
 7-step scripted loop: observe blotter → submit 3 orders → observe blotter → observe risk → done. All OMS machinery is real; the LLM is replaced by a hardcoded decision function.
 
 ```sh
-lex run --allow-effects concurrent,fs_read,fs_write,io,net,random,sql,time \
+lex run --allow-effects concurrent,crypto,fs_read,fs_write,io,net,random,sql,time \
         examples/demo.lex main
 ```
 
@@ -143,7 +143,7 @@ Response includes:
 |---|---|---|
 | `LLM_PROVIDER` | `anthropic` | `anthropic` or `vertex` |
 | `ANTHROPIC_API_KEY` | — | Anthropic API key |
-| `ANTHROPIC_MODEL` | `claude-haiku-4-5` | Any Claude model ID |
+| `ANTHROPIC_MODEL` | `claude-haiku-4-5-20251001` | Any Claude model ID |
 | `VERTEX_PROJECT` | — | GCP project ID |
 | `VERTEX_ACCESS_TOKEN` | — | OAuth2 bearer token (`gcloud auth print-access-token`) |
 | `VERTEX_API_KEY` | — | Alternative to `VERTEX_ACCESS_TOKEN` |
