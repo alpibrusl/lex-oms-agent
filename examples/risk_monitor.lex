@@ -173,11 +173,9 @@ fn run_demo(db :: conn.ConnDb, log :: trail_log.Log, provider :: prov.Provider, 
   let __h4   := print_section("PHASE 3 — LLM risk monitor  [provider=" + provider.name + "  model=" + model.model + "]")
   let goal   := str.join([
     "You are a risk monitoring agent. Risk policy: no single symbol may exceed 500 shares. ",
-    "AAPL is currently at 600 shares — a breach of 100 shares over the 500-share limit. ",
-    "Observe current positions. Submit a sell order to reduce AAPL to 400 shares (sell 200 AAPL). ",
-    "Then improve diversification: buy 100 MSFT and 100 NVDA. ",
-    "Observe final risk to confirm the breach is resolved. ",
-    "Call done when AAPL is below the 500-share limit and diversification is improved.",
+    "Observe current positions and risk. Identify any policy breaches. ",
+    "Submit orders to bring all positions within policy limits. ",
+    "Call done when no symbol exceeds 500 shares.",
   ], "")
   let decide  := llm_decide.make_decide(provider, model, goal)
   let mon_ctx := { db: db, log: log, max_steps: 25 }

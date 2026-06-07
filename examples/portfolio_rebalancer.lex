@@ -144,11 +144,10 @@ fn run_demo(db :: conn.ConnDb, log :: trail_log.Log, provider :: prov.Provider, 
 
   let __h3  := print_section("PHASE 2 — LLM rebalancer  [provider=" + provider.name + "  model=" + model.model + "]")
   let goal  := str.join([
-    "Rebalance the portfolio to equal weights: 300 shares each of AAPL, MSFT, and NVDA. ",
-    "Current positions: AAPL 700 long, MSFT 150 long, NVDA 50 long. ",
-    "To rebalance: sell 400 AAPL, buy 150 MSFT, buy 250 NVDA. ",
-    "Observe positions first to confirm, then submit the three orders. ",
-    "Call done once all three rebalancing orders are confirmed accepted by the OMS.",
+    "Rebalance the portfolio so every symbol has equal share count. ",
+    "Observe current positions, compute the target quantity (total shares / number of symbols), ",
+    "then submit sell or buy orders to bring each symbol to that target. ",
+    "Call done when all rebalancing orders are accepted by the OMS.",
   ], "")
   let decide  := llm_decide.make_decide(provider, model, goal)
   let run_ctx := { db: db, log: log, max_steps: 25 }
