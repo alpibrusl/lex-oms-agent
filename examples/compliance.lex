@@ -1,26 +1,24 @@
-# lex-oms-agent — Demo 5: Real-Time Compliance Monitor
+# lex-oms-agent — Demo 5: Dual-Breach Compliance Monitor
 #
-# A $112M institutional equity portfolio.
-# Internal policy, MiFID II Article 57 compliant:
-#   no single position may exceed $50,000,000 notional exposure.
+# $112M institutional equity portfolio governed by MiFID II Article 57:
+# no single position may exceed $50,000,000 notional.
 #
 # Timeline:
-#   1. Seed balanced portfolio — all within limit
-#        AAPL 200,000 × $175 = $35,000,000
-#        MSFT  80,000 × $420 = $33,600,000
-#        NVDA  50,000 × $875 = $43,750,000  NAV = $112,350,000
-#   2. Rogue event: unauthorised +100,000 AAPL fill injected
-#        → AAPL 300,000 × $175 = $52,500,000  (BREACH +$2,500,000)
-#   3. Compliance Monitor (LLM agent):
-#        • observes positions
-#        • identifies AAPL breach: $52.5M, excess $2.5M
-#        • computes minimum corrective sell: ⌈2,500,000 / 175⌉ = 14,286 shares
-#        • submits sell order — accepted by OMS
-#        • files formal incident report
+#   1. Seed: AAPL $35M · MSFT $33.6M · NVDA $43.75M  (all within limit)
+#   2. Double rogue event — two fills injected directly, bypassing the OMS gate:
+#        AAPL +100,000 → 300,000 × $175 = $52,500,000  (+$2,500,000 breach)
+#        MSFT  +45,000 → 125,000 × $420 = $52,500,000  (+$2,500,000 breach)
+#   3. Lex risk engine computes corrective quantities deterministically:
+#        AAPL: ⌈2,500,000 / 175⌉ = 14,286 shares to sell
+#        MSFT: ⌈2,500,000 / 420⌉ =  5,953 shares to sell
+#      These figures are passed into the agent — the LLM does no arithmetic.
+#   4. Compliance Monitor (LLM agent):
+#        • observes blotter — cancels any pending buys for breached symbols
+#        • submits two corrective sell orders (exact quantities from risk engine)
+#        • files a formal dual-breach incident report
 #
-# The tamper-evident audit trail (lex-trail) records every decision with
-# millisecond timestamps. Regulators can verify the full chain without
-# trusting any single party.
+# Design principle: the risk engine owns the math; the agent owns the decisions.
+# The tamper-evident audit trail (lex-trail) records every step for regulators.
 #
 # Run:
 #   ANTHROPIC_API_KEY=sk-ant-... \
@@ -123,24 +121,14 @@ fn simulate_seed_fills(db :: conn.ConnDb) -> [sql, time, crypto] Unit {
   ()
 }
 
+# Both rogue fills bypass the OMS gate via direct execution report injection.
 fn simulate_rogue_fills(db :: conn.ConnDb) -> [sql, time, crypto] Unit {
-  fill_order(db, "R1", "ROGUE-AAPL", "AAPL", "buy", 100000)
-}
-
-fn fill_history(db :: conn.ConnDb, history :: List[agent.Step]) -> [sql, time, crypto] Unit {
-  let _ := list.fold(history, 0, fn (idx :: Int, step :: agent.Step) -> [sql, time, crypto] Int {
-    let __ := if step.outcome.ok {
-      match step.tool {
-        SubmitOrder(p) => fill_order(db, "T" + int.to_str(idx), p.cl_ord_id, p.symbol, p.side, p.quantity),
-        _              => (),
-      }
-    } else { () }
-    idx + 1
-  })
+  let __1 := fill_order(db, "R1", "ROGUE-AAPL", "AAPL", "buy", 100000)
+  let __2 := fill_order(db, "R2", "ROGUE-MSFT", "MSFT", "buy",  45000)
   ()
 }
 
-# ---- Scripted agents -----------------------------------------------
+# ---- Scripted seed agent -------------------------------------------
 
 fn scripted_seed(history :: List[agent.Step]) -> tool.Tool {
   let n := agent.steps_taken(history)
@@ -153,15 +141,6 @@ fn scripted_seed(history :: List[agent.Step]) -> tool.Tool {
   } else {
     AgentDone("seed complete")
   } } }
-}
-
-fn scripted_rogue(history :: List[agent.Step]) -> tool.Tool {
-  let n := agent.steps_taken(history)
-  if n == 0 {
-    SubmitOrder({ cl_ord_id: "ROGUE-AAPL", symbol: "AAPL", side: "buy", quantity: 100000 })
-  } else {
-    AgentDone("rogue trade submitted")
-  }
 }
 
 # ---- Dollar formatting ---------------------------------------------
@@ -221,33 +200,60 @@ fn run_demo(db :: conn.ConnDb, log :: trail_log.Log, provider :: prov.Provider, 
   let __l3 := print_position("NVDA",  50000, nvda_px, limit)
   let __l4 := io.print("  NAV: " + usd(200000 * aapl_px + 80000 * msft_px + 50000 * nvda_px))
 
-  # ── Phase 2: rogue event ─────────────────────────────────────────
-  let __h2 := print_section("INCIDENT — Unauthorised trade detected")
-  let __rr := agent.run(base_ctx, scripted_rogue)
+  # ── Phase 2: double rogue event ──────────────────────────────────
+  let __h2 := print_section("INCIDENT — Unauthorised fills injected (bypass OMS gate)")
   let __f2 := simulate_rogue_fills(db)
-  let __ok := io.print("  Rogue fill: +100,000 AAPL @ $175")
-  let __l5 := print_position("AAPL", 300000, aapl_px, limit)
+
+  # Post-rogue quantities
+  let aapl_qty := 300000   # 200k seed + 100k rogue
+  let msft_qty := 125000   #  80k seed +  45k rogue
+
+  let __ra := io.print("  ROGUE-AAPL: +100,000 shares injected")
+  let __rb := io.print("  ROGUE-MSFT:  +45,000 shares injected")
+  let __la := print_position("AAPL", aapl_qty, aapl_px, limit)
+  let __lb := print_position("MSFT", msft_qty, msft_px, limit)
+  let __lc := print_position("NVDA",   50000,  nvda_px, limit)
+
+  # ── Risk engine: breach computation (Lex arithmetic, not LLM) ────
+  let aapl_notional := aapl_qty * aapl_px         # 52,500,000
+  let msft_notional := msft_qty * msft_px         # 52,500,000
+  let aapl_excess   := aapl_notional - limit      # 2,500,000
+  let msft_excess   := msft_notional - limit      # 2,500,000
+  # Ceiling division: ⌈excess / price⌉
+  let aapl_sell := (aapl_excess + aapl_px - 1) / aapl_px   # 14,286
+  let msft_sell := (msft_excess + msft_px - 1) / msft_px   #  5,953
+
+  let breach_report := str.join([
+    "Risk engine report — 2 MiFID II Art. 57 breaches:\n",
+    "  AAPL  " + format_commas(aapl_qty) + " shares x " + usd(aapl_px) +
+      " = " + usd(aapl_notional) +
+      "  excess " + usd(aapl_excess) +
+      "  corrective sell: " + format_commas(aapl_sell) + " shares\n",
+    "  MSFT  " + format_commas(msft_qty) + " shares x " + usd(msft_px) +
+      " = " + usd(msft_notional) +
+      "  excess " + usd(msft_excess) +
+      "  corrective sell: " + format_commas(msft_sell) + " shares\n",
+  ], "")
 
   # ── Phase 3: compliance monitor ──────────────────────────────────
   let __h3 := print_section("AGENT — Compliance Monitor  [" + provider.name + " / " + model.model + "]")
+  let __br := io.print(breach_report)
+
   let monitor_goal := str.join([
-    "You are an autonomous compliance officer for a $112,350,000 institutional equity fund. ",
-    "Risk policy (MiFID II Article 57 compliant): no single position may exceed $50,000,000 notional. ",
-    "Reference prices (use ONLY these — do not use prices from any risk endpoint): ",
-    "  AAPL = $175 per share, MSFT = $420 per share, NVDA = $875 per share. ",
-    "Step 1: call observe with target=positions. ",
-    "For each symbol multiply shares by the reference price above to get notional. ",
-    "Arithmetic example: 300,000 shares x $175 = $52,500,000. ",
-    "Identify every symbol whose notional exceeds $50,000,000. ",
-    "Step 2: for each breach, compute shares_to_sell = ceiling((notional - 50000000) / price). ",
-    "Submit a sell order for exactly that many shares. ",
-    "Step 3: call done with a formal compliance incident report in this exact format — ",
-    "BREACH: [SYMBOL] [shares] shares x $[price] = $[notional]. ",
-    "Excess: $[excess]. Corrective sell: [sold_shares] shares. ",
-    "Position restored to $[final_notional]. Incident logged.",
+    "You are an autonomous compliance officer. ",
+    "Policy: MiFID II Article 57 — no single position may exceed $50,000,000 notional. ",
+    "The risk engine has identified the following breaches:\n",
+    breach_report,
+    "Execute remediation in this order:\n",
+    "1. Call observe with target=blotter. ",
+    "   Cancel any open BUY orders for AAPL or MSFT using cancel_order.\n",
+    "2. Submit a sell order: symbol=AAPL, quantity=" + int.to_str(aapl_sell) + ".\n",
+    "3. Submit a sell order: symbol=MSFT, quantity=" + int.to_str(msft_sell) + ".\n",
+    "4. Call done with a formal incident report that names both symbols, ",
+    "the breach amounts, corrective sells, and restored notionals.",
   ], "")
   let monitor_decide := llm_decide.make_decide(provider, model, monitor_goal)
-  let monitor_ctx    := { db: db, log: log, max_steps: 10 }
+  let monitor_ctx    := { db: db, log: log, max_steps: 12 }
   let monitor_result := agent.run_with_llm(monitor_ctx, monitor_decide)
 
   # ── Output ────────────────────────────────────────────────────────
