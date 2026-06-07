@@ -42,7 +42,7 @@ lex run --allow-effects concurrent,crypto,fs_read,fs_write,io,net,random,sql,tim
 
 ### Demo 1 — portfolio rebalancer
 
-Seeds a skewed portfolio (700 AAPL · 150 MSFT · 50 NVDA), then turns the LLM loose to rebalance to equal 300-share weights per symbol. The agent observes positions, computes the three required trades, submits them, verifies acceptance, and calls `done`.
+Seeds a skewed portfolio (700 AAPL · 150 MSFT · 50 NVDA), then turns the LLM loose to rebalance to equal 300-share weights per symbol. The goal gives no explicit trade instructions — the agent observes positions, computes the target (300 shares each), figures out the three required trades, submits them, and calls `done`.
 
 ```sh
 # Anthropic
@@ -58,19 +58,18 @@ lex run --allow-effects concurrent,crypto,env,fs_read,fs_write,io,llm,net,proc,r
         examples/portfolio_rebalancer.lex main
 ```
 
-Expected output (Gemini, 11 steps):
+Sample output (Gemini — cl_ord_ids and step count vary by run):
 ```
 === PHASE 1 — Seed skewed portfolio (scripted) ===
 Seeded: 700 AAPL  150 MSFT  50 NVDA
 
 === PHASE 2 — LLM rebalancer  [provider=vertex  model=gemini-3.5-flash] ===
-GoalMet: Confirmed that all three rebalancing orders (sell 400 AAPL,
-         buy 150 MSFT, buy 250 NVDA) have been accepted by the OMS.
+GoalMet: All three rebalancing orders have been accepted by the OMS.
 
 === Blotter ===
-rebal_sell_aapl   AAPL sell 400   PendingNew
-rebal_buy_msft    MSFT buy  150   PendingNew
-rebal_buy_nvda    NVDA buy  250   PendingNew
+<llm-chosen-id>   AAPL sell 400   PendingNew
+<llm-chosen-id>   MSFT buy  150   PendingNew
+<llm-chosen-id>   NVDA buy  250   PendingNew
 ```
 
 ---
