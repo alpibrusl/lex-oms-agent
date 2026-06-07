@@ -114,6 +114,16 @@ fn encode_messages(messages :: List[msg.Message]) -> (Option[Str], List[jv.Json]
   (sys, contents)
 }
 
+fn fn_name_from_id(call_id :: Str) -> Str {
+  let base := if str.contains(call_id, "|||") {
+    let parts := str.split(call_id, "|||")
+    match list.head(parts) { Some(s) => s, None => call_id }
+  } else {
+    call_id
+  }
+  match str.strip_prefix(base, "call_") { Some(name) => name, None => base }
+}
+
 fn encode_content(m :: msg.Message) -> jv.Json {
   match m {
     UserMsg(text) =>
@@ -127,7 +137,7 @@ fn encode_content(m :: msg.Message) -> jv.Json {
     },
     ToolMsg(call_id, content) =>
       JObj([("role", JStr("user")), ("parts", JList([JObj([("functionResponse",
-        JObj([("name", JStr(call_id)), ("response", JObj([("output", JStr(content))]))])
+        JObj([("name", JStr(fn_name_from_id(call_id))), ("response", JObj([("output", JStr(content))]))])
       )])]))]),
     SystemMsg(_) =>
       JObj([("role", JStr("user")), ("parts", JList([JObj([("text", JStr(""))])]))]),
@@ -142,11 +152,14 @@ fn encode_content(m :: msg.Message) -> jv.Json {
 # Append a synthetic FinishDelta("stop") so collect_response picks up tool calls.
 
 fn parse_stream(body :: Str) -> Iter[d.Delta] {
-  let raw := match jv.parse_into_errors(body) {
+  let body2 := str.join(str.split(body, "\\u003e"), ">")
+  let body3 := str.join(str.split(body2, "\\u003c"), "<")
+  let body4 := str.join(str.split(body3, "\\u0026"), "&")
+  let raw := match jv.parse_into_errors(body4) {
     Ok(JList(chunks)) => list.fold(chunks, [], fn (acc :: List[d.Delta], chunk :: jv.Json) -> List[d.Delta] {
       list.concat(acc, parse_chunk(chunk))
     }),
-    _ => list.fold(str.split(body, "\n"), [], fn (acc :: List[d.Delta], line :: Str) -> List[d.Delta] {
+    _ => list.fold(str.split(body4, "\n"), [], fn (acc :: List[d.Delta], line :: Str) -> List[d.Delta] {
       let t := str.trim(line)
       if str.is_empty(t) { acc } else {
         match jv.parse_into_errors(t) {

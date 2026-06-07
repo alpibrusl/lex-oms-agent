@@ -52,7 +52,7 @@ fn select_provider() -> [env] prov.Provider {
     "vertex" => {
       let project      := get_env("VERTEX_PROJECT")
       let location     := get_env("VERTEX_LOCATION")
-      let token        := get_env("VERTEX_TOKEN")
+      let token        := get_env("VERTEX_ACCESS_TOKEN")
       let api_key      := get_env("VERTEX_API_KEY")
       let access_token := if str.is_empty(token) { api_key } else { token }
       let cfg := if str.is_empty(location) {

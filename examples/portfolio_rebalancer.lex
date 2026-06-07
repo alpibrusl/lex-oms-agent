@@ -15,7 +15,7 @@
 #           examples/portfolio_rebalancer.lex main
 #
 # For Vertex AI:
-#   LLM_PROVIDER=vertex VERTEX_PROJECT=my-project VERTEX_TOKEN=ya29... \
+#   LLM_PROVIDER=vertex VERTEX_PROJECT=my-project VERTEX_ACCESS_TOKEN=ya29... \
 #   lex run --allow-effects concurrent,crypto,env,fs_read,fs_write,io,llm,net,proc,random,sql,time \
 #           examples/portfolio_rebalancer.lex main
 
@@ -51,7 +51,7 @@ fn select_provider() -> [env] prov.Provider {
     "vertex" => {
       let project      := get_env("VERTEX_PROJECT")
       let location     := get_env("VERTEX_LOCATION")
-      let token        := get_env("VERTEX_TOKEN")
+      let token        := get_env("VERTEX_ACCESS_TOKEN")
       let api_key      := get_env("VERTEX_API_KEY")
       let access_token := if str.is_empty(token) { api_key } else { token }
       let cfg := if str.is_empty(location) {

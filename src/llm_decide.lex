@@ -34,15 +34,15 @@ import "./agent" as agent
 
 fn system_prompt(goal :: Str) -> Str {
   str.join([
-    "You are a trading agent connected to an Order Management System (OMS). ",
-    "Your goal: ", goal, "\n\n",
-    "You must call exactly one tool per turn. ",
-    "Start by observing the blotter to understand current state. ",
-    "Use submit_order to place market orders, cancel_order to cancel, ",
-    "observe to read blotter/positions/risk/audit, ",
-    "and done when the goal is fully met.\n\n",
-    "Use conservative position sizing. ",
-    "Always call done with a clear reason once the objective is achieved.",
+    "You are a trading agent connected to an Order Management System (OMS).\n",
+    "GOAL: ", goal, "\n\n",
+    "RULES — follow these exactly:\n",
+    "1. You MUST respond with a tool call every single turn. Never respond with text only.\n",
+    "2. Call exactly one tool per turn.\n",
+    "3. Available tools: observe (target: blotter/positions/risk/audit), submit_order, cancel_order, done.\n",
+    "4. After observing, immediately proceed to submit orders toward the goal.\n",
+    "5. When all required orders are accepted, call done with a summary.\n\n",
+    "Do not explain your reasoning in text. Just call the next tool.",
   ], "")
 }
 
@@ -108,7 +108,7 @@ fn all_tools() -> List[lt.Tool] {
 
 fn step_to_messages(step :: agent.Step) -> List[msg.Message] {
   let tool_name_str := tool.tool_name(step.tool)
-  let call_id := str.concat("call_", int.to_str(step.step))
+  let call_id := str.concat("call_", tool_call_name(step.tool))
   let args_json := tool_args_json(step.tool)
   let assistant := AssistantMsg("", [{ id: call_id, name: tool_call_name(step.tool), args: args_json }])
   let result_body := if step.outcome.ok {
@@ -237,7 +237,7 @@ fn int_field(j :: jv.Json, key :: Str) -> Int {
 fn make_decide(provider :: prov.Provider, model :: prov.ModelRef, goal :: Str) -> (List[agent.Step]) -> [net, llm] tool.Tool {
   fn (history :: List[agent.Step]) -> [net, llm] tool.Tool {
     let sys  := SystemMsg(system_prompt(goal))
-    let init := UserMsg("Begin. Observe the current state first, then work toward the goal.")
+    let init := UserMsg("Begin. Call observe with target=positions now.")
     let hist_msgs := history_to_messages(history)
     let messages  := list.concat([sys, init], hist_msgs)
     let raw_deltas := iter.to_list(provider.chat(model, messages, all_tools()))
