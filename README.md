@@ -136,6 +136,34 @@ Response includes:
 
 ---
 
+### Demo 4 — adversarial agents
+
+Two LLM agents with opposing mandates act on the same portfolio through the same OMS. Neither is told about the other.
+
+**Setup (scripted):** seed 400 AAPL · 100 MSFT · 100 NVDA, then inject a rogue +200 AAPL fill → positions hit 600 AAPL, above the 500-share policy limit.
+
+**Agent A — Aggressive Trader:** mandate is to concentrate into the biggest holding. Sees 600 AAPL, buys more. Exchange fills are simulated immediately.
+
+**Agent B — Risk Monitor:** mandate is to enforce the 500-share limit. Observes the blotter, cancels the trader's pending buy orders, then sells the excess. Calls done when the breach is resolved.
+
+The audit trail records both agents' full decision chains on the same log.
+
+```sh
+# Anthropic
+ANTHROPIC_API_KEY=sk-ant-... \
+lex run --allow-effects concurrent,crypto,env,fs_read,fs_write,io,llm,net,proc,random,sql,time \
+        examples/adversarial.lex main
+
+# Vertex AI
+LLM_PROVIDER=vertex \
+VERTEX_PROJECT=my-project \
+VERTEX_ACCESS_TOKEN=$(gcloud auth print-access-token) \
+lex run --allow-effects concurrent,crypto,env,fs_read,fs_write,io,llm,net,proc,random,sql,time \
+        examples/adversarial.lex main
+```
+
+---
+
 ## Environment variables
 
 | Variable | Default | Description |
