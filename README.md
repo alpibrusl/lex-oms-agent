@@ -164,9 +164,9 @@ lex run --allow-effects concurrent,crypto,env,fs_read,fs_write,io,llm,net,proc,r
 
 ---
 
-### Demo 5 — real-time compliance monitor
+### Demo 5 — dual-breach compliance monitor
 
-A $112M institutional equity portfolio governed by MiFID II Article 57: no single position may exceed $50,000,000 notional. An unauthorised "rogue" fill pushes AAPL to $52.5M (+$2.5M over the limit). A compliance agent observes the breach, computes the minimum corrective sell (⌈$2,500,000 / $175⌉ = 14,286 shares), submits it through the OMS, and files a formal incident report. The entire decision chain is recorded in a tamper-evident, hash-chained audit trail that regulators can verify without trusting any single party.
+A $112M institutional equity portfolio governed by MiFID II Article 57: no single position may exceed $50,000,000 notional. Two rogue fills bypass the OMS gate and breach both AAPL (+$2.5M) and MSFT (+$2.5M). The **Lex risk engine** computes the exact corrective sell quantities before the LLM runs — the agent submits the pre-computed trades and files a formal dual-breach incident report. Every step is hash-chained in a tamper-evident audit trail.
 
 ```sh
 # Anthropic
@@ -182,7 +182,7 @@ lex run --allow-effects concurrent,crypto,env,fs_read,fs_write,io,llm,net,proc,r
         examples/compliance.lex main
 ```
 
-Sample output (Gemini 3.5 Flash, 3 steps):
+Sample output (Gemini 3.5 Flash):
 ```
 === PORTFOLIO — Seed positions (all within limit) ===
   Policy: MiFID II Art. 57  |  Limit: $50,000,000 max notional per name
@@ -191,17 +191,99 @@ Sample output (Gemini 3.5 Flash, 3 steps):
   NVDA:  50,000 shares x $875 = $43,750,000
   NAV: $112,350,000
 
-=== INCIDENT — Unauthorised trade detected ===
-  Rogue fill: +100,000 AAPL @ $175
-  AAPL: 300,000 shares x $175 = $52,500,000  *** BREACH: $2,500,000 over limit ***
+=== INCIDENT — Unauthorised fills injected (bypass OMS gate) ===
+  ROGUE-AAPL  +100,000 shares → injected via execution report
+  ROGUE-MSFT   +45,000 shares → injected via execution report
+  AAPL: 300,000 shares x $175 = $52,500,000  *** BREACH $2,500,000 over limit ***
+  MSFT: 125,000 shares x $420 = $52,500,000  *** BREACH $2,500,000 over limit ***
 
-=== AGENT — Compliance Monitor  [vertex / gemini-3.5-flash] ===
+=== RISK ENGINE — corrective quantities (deterministic) ===
+  AAPL  excess $2,500,000  →  sell 14,286 shares  (restored to $49,999,950)
+  MSFT  excess $2,500,000  →  sell  5,953 shares  (restored to $49,999,740)
+  No LLM involved in this computation.
 
 === COMPLIANCE INCIDENT REPORT ===
-BREACH: AAPL 300000 shares x $175 = $52500000.
-Excess: $2500000. Corrective sell: 14286 shares.
-Position restored to $49999950. Incident logged.
+MiFID II Article 57 Incident Report:
+1. Breaches: AAPL $52,500,000 (+$2,500,000)  MSFT $52,500,000 (+$2,500,000)
+2. Corrective sells: AAPL 14,286 shares  MSFT 5,953 shares
+3. Positions restored within limit.
 ```
+
+---
+
+### Demo 6 — live enforcement (momentum trader vs compliance monitor)
+
+The flagship demo. Three guarantees that no Python framework can offer:
+
+1. **Effect isolation** — the compliance monitor is declared `[sql, llm]`. It cannot touch the network or filesystem. Not by policy. Not by runtime monitoring. Proven at compile time. (See `examples/bad_agent.lex`.)
+
+2. **Live enforcement** — the compliance monitor intercepts the momentum trader's pending buy before the exchange sees it. The OMS is the single enforcement point. Both agents share it.
+
+3. **Tamper-evident chain** — every decision is content-addressed and hash-chained. No party can rewrite history. Regulators verify the root hash independently.
+
+**Timeline:**
+1. Seed: AAPL $35M · MSFT $33.6M · NVDA $43.75M (NAV $112,350,000)
+2. Two rogue fills bypass the OMS gate (injected via execution reports): AAPL +100k → $52.5M breach, MSFT +45k → $52.5M breach
+3. **Lex risk engine** (deterministic, no LLM): AAPL corrective sell = 14,286 shares · MSFT = 5,953 shares
+4. **Momentum Trader (LLM):** AAPL buy → blocked ($52.5M cap), MSFT buy → blocked ($52.5M cap), NVDA buy → accepted → **PendingNew**
+5. **Compliance Monitor (LLM):** cancels trader's NVDA buy before exchange fills it → sells 14,286 AAPL → sells 5,953 MSFT → files formal incident report
+
+```sh
+# Anthropic
+ANTHROPIC_API_KEY=sk-ant-... \
+lex run --allow-effects concurrent,crypto,env,fs_read,fs_write,io,llm,net,proc,random,sql,time \
+        examples/enforcement.lex main
+
+# Vertex AI
+LLM_PROVIDER=vertex \
+VERTEX_PROJECT=my-project \
+VERTEX_ACCESS_TOKEN=$(gcloud auth print-access-token) \
+lex run --allow-effects concurrent,crypto,env,fs_read,fs_write,io,llm,net,proc,random,sql,time \
+        examples/enforcement.lex main
+```
+
+Sample output (Gemini 3.5 Flash):
+```
+=== PORTFOLIO  —  seed positions, all within limit ===
+  Policy: MiFID II Art. 57  |  Limit: $50,000,000 max notional per name
+  AAPL:  200,000 shares  x  $175  =  $35,000,000
+  MSFT:   80,000 shares  x  $420  =  $33,600,000
+  NVDA:   50,000 shares  x  $875  =  $43,750,000  NAV: $112,350,000
+
+=== INCIDENT  —  two rogue fills bypass OMS gate ===
+  AAPL: 300,000 x $175 = $52,500,000  *** BREACH $2,500,000 over limit ***
+  MSFT: 125,000 x $420 = $52,500,000  *** BREACH $2,500,000 over limit ***
+
+=== RISK ENGINE  —  corrective quantities (deterministic) ===
+  AAPL  excess $2,500,000  →  sell 14,286 shares
+  MSFT  excess $2,500,000  →  sell  5,953 shares
+  No LLM involved in this computation.
+
+=== AGENT A  —  Momentum Trader  [vertex / gemini-3.5-flash] ===
+  done: AAPL blocked, MSFT blocked, NVDA buy 5,000 accepted — PendingNew.
+  NOTE: exchange fills NOT applied — the buy is PendingNew in the OMS blotter.
+
+=== AGENT B  —  Compliance Monitor  [vertex / gemini-3.5-flash] ===
+
+=== COMPLIANCE INCIDENT REPORT ===
+1. Breaches: AAPL $52,500,000 (+$2,500,000)  MSFT $52,500,000 (+$2,500,000)
+2. Orders cancelled: NVDA buy 5,000 (PendingNew → PendingCancel — never reached exchange)
+3. Corrective sells: AAPL 14,286 shares  MSFT 5,953 shares
+4. Positions restored within MiFID II Art. 57 limit.
+```
+
+---
+
+### Effect isolation proof — `bad_agent.lex`
+
+This file intentionally does not compile. A compliance agent declared `[sql]` — allowed to read the database and nothing else — tries to call `net.post`. The compiler rejects it:
+
+```sh
+lex check examples/bad_agent.lex
+# error: effect `net` not declared
+```
+
+Not by a policy check at runtime. Not by code review. By the type system, before a single byte leaves the machine. A prompt injection cannot make a `[sql]` function call `[net]`. The guarantee is structural.
 
 ---
 
