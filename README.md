@@ -164,6 +164,47 @@ lex run --allow-effects concurrent,crypto,env,fs_read,fs_write,io,llm,net,proc,r
 
 ---
 
+### Demo 5 — real-time compliance monitor
+
+A $112M institutional equity portfolio governed by MiFID II Article 57: no single position may exceed $50,000,000 notional. An unauthorised "rogue" fill pushes AAPL to $52.5M (+$2.5M over the limit). A compliance agent observes the breach, computes the minimum corrective sell (⌈$2,500,000 / $175⌉ = 14,286 shares), submits it through the OMS, and files a formal incident report. The entire decision chain is recorded in a tamper-evident, hash-chained audit trail that regulators can verify without trusting any single party.
+
+```sh
+# Anthropic
+ANTHROPIC_API_KEY=sk-ant-... \
+lex run --allow-effects concurrent,crypto,env,fs_read,fs_write,io,llm,net,proc,random,sql,time \
+        examples/compliance.lex main
+
+# Vertex AI
+LLM_PROVIDER=vertex \
+VERTEX_PROJECT=my-project \
+VERTEX_ACCESS_TOKEN=$(gcloud auth print-access-token) \
+lex run --allow-effects concurrent,crypto,env,fs_read,fs_write,io,llm,net,proc,random,sql,time \
+        examples/compliance.lex main
+```
+
+Sample output (Gemini 3.5 Flash, 3 steps):
+```
+=== PORTFOLIO — Seed positions (all within limit) ===
+  Policy: MiFID II Art. 57  |  Limit: $50,000,000 max notional per name
+  AAPL: 200,000 shares x $175 = $35,000,000
+  MSFT:  80,000 shares x $420 = $33,600,000
+  NVDA:  50,000 shares x $875 = $43,750,000
+  NAV: $112,350,000
+
+=== INCIDENT — Unauthorised trade detected ===
+  Rogue fill: +100,000 AAPL @ $175
+  AAPL: 300,000 shares x $175 = $52,500,000  *** BREACH: $2,500,000 over limit ***
+
+=== AGENT — Compliance Monitor  [vertex / gemini-3.5-flash] ===
+
+=== COMPLIANCE INCIDENT REPORT ===
+BREACH: AAPL 300000 shares x $175 = $52500000.
+Excess: $2500000. Corrective sell: 14286 shares.
+Position restored to $49999950. Incident logged.
+```
+
+---
+
 ## Environment variables
 
 | Variable | Default | Description |
