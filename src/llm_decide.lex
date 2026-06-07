@@ -41,7 +41,7 @@ fn system_prompt(goal :: Str) -> Str {
     "2. Call exactly one tool per turn.\n",
     "3. Available tools: observe (target: blotter/positions/risk/audit), submit_order, cancel_order, done.\n",
     "4. After observing, immediately proceed to submit orders toward the goal.\n",
-    "5. When all required orders are accepted, call done with a summary.\n\n",
+    "5. An order with state PendingNew means it has been accepted by the OMS. That counts as accepted — do NOT wait for Filled state. When all required orders are PendingNew or Filled, call done with a summary.\n\n",
     "Do not explain your reasoning in text. Just call the next tool.",
   ], "")
 }
