@@ -107,8 +107,11 @@ fn all_tools() -> List[lt.Tool] {
 # ---- History → Messages conversion ---------------------------------
 
 fn step_to_messages(step :: agent.Step) -> List[msg.Message] {
-  let tool_name_str := tool.tool_name(step.tool)
-  let call_id := str.concat("call_", tool_call_name(step.tool))
+  let call_id := if str.is_empty(step.call_id) {
+    str.concat("call_", tool_call_name(step.tool))
+  } else {
+    step.call_id
+  }
   let args_json := tool_args_json(step.tool)
   let assistant := AssistantMsg("", [{ id: call_id, name: tool_call_name(step.tool), args: args_json }])
   let result_body := if step.outcome.ok {
@@ -117,7 +120,6 @@ fn step_to_messages(step :: agent.Step) -> List[msg.Message] {
     str.concat("{\"error\":\"status ", str.concat(int.to_str(step.outcome.status), str.concat("\",\"body\":", str.concat(step.outcome.body, "}"))))
   }
   let tool_msg := ToolMsg(call_id, result_body)
-  let _ := tool_name_str
   [assistant, tool_msg]
 }
 
@@ -233,9 +235,10 @@ fn int_field(j :: jv.Json, key :: Str) -> Int {
 # ---- Public API ---------------------------------------------------
 
 # make_decide returns a decide function for agent.run_with_llm.
-# goal: natural-language objective shown in the system prompt.
-fn make_decide(provider :: prov.Provider, model :: prov.ModelRef, goal :: Str) -> (List[agent.Step]) -> [net, llm] tool.Tool {
-  fn (history :: List[agent.Step]) -> [net, llm] tool.Tool {
+# Returns (tool, call_id) so the call_id (including any thoughtSignature) is
+# preserved in Step.call_id and correctly replayed in history reconstruction.
+fn make_decide(provider :: prov.Provider, model :: prov.ModelRef, goal :: Str) -> (List[agent.Step]) -> [net, llm] (tool.Tool, Str) {
+  fn (history :: List[agent.Step]) -> [net, llm] (tool.Tool, Str) {
     let sys  := SystemMsg(system_prompt(goal))
     let init := UserMsg("Begin. Call observe with target=positions now.")
     let hist_msgs := history_to_messages(history)
@@ -243,8 +246,8 @@ fn make_decide(provider :: prov.Provider, model :: prov.ModelRef, goal :: Str) -
     let raw_deltas := iter.to_list(provider.chat(model, messages, all_tools()))
     let resp := collect_deltas(raw_deltas)
     match list.head(resp.calls) {
-      Some(call) => parse_tool(call),
-      None       => AgentDone(if str.is_empty(resp.content) { "no tool call returned" } else { resp.content }),
+      Some(call) => (parse_tool(call), call.id),
+      None       => (AgentDone(if str.is_empty(resp.content) { "no tool call returned" } else { resp.content }), ""),
     }
   }
 }

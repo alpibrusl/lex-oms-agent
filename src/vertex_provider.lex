@@ -101,7 +101,8 @@ fn build_request(messages :: List[msg.Message], tools :: List[t.Tool]) -> Str {
   let with_tools := if list.is_empty(tools) { with_sys } else {
     list.concat(with_sys, [("tools", JList([JObj([("functionDeclarations", JList(list.map(tools, t.to_google_json)))])]))])
   }
-  jv.stringify(JObj(with_tools))
+  let with_config := list.concat(with_tools, [("generationConfig", JObj([("thinkingConfig", JObj([("thinkingBudget", JInt(0))]))]))])
+  jv.stringify(JObj(with_config))
 }
 
 fn encode_messages(messages :: List[msg.Message]) -> (Option[Str], List[jv.Json]) {
@@ -112,6 +113,16 @@ fn encode_messages(messages :: List[msg.Message]) -> (Option[Str], List[jv.Json]
     match m { SystemMsg(_) => acc, _ => list.concat(acc, [encode_content(m)]) }
   })
   (sys, contents)
+}
+
+fn thought_sig_from_id(call_id :: Str) -> Str {
+  if str.contains(call_id, "|||") {
+    let parts := str.split(call_id, "|||")
+    let base := match list.head(parts) { Some(s) => s, None => "" }
+    match str.strip_prefix(call_id, str.concat(base, "|||")) { Some(ts) => ts, None => "" }
+  } else {
+    ""
+  }
 }
 
 fn fn_name_from_id(call_id :: Str) -> Str {
@@ -132,7 +143,13 @@ fn encode_content(m :: msg.Message) -> jv.Json {
       JObj([("role", JStr("model")), ("parts", JList([JObj([("text", JStr(text))])]))])
     } else {
       JObj([("role", JStr("model")), ("parts", JList(list.map(calls, fn (c :: msg.ToolCall) -> jv.Json {
-        JObj([("functionCall", JObj([("name", JStr(c.name)), ("args", c.args)]))])
+        let fc_obj := JObj([("name", JStr(c.name)), ("args", c.args)])
+        let ts := thought_sig_from_id(c.id)
+        if str.is_empty(ts) {
+          JObj([("functionCall", fc_obj)])
+        } else {
+          JObj([("functionCall", fc_obj), ("thoughtSignature", JStr(ts))])
+        }
       })))])
     },
     ToolMsg(call_id, content) =>
@@ -210,7 +227,15 @@ fn parse_part(part :: jv.Json) -> List[d.Delta] {
   match jv.get_field(part, "functionCall") {
     Some(fc) => {
       let name := str_field(fc, "name")
-      let id   := str.concat("call_", name)
+      let thought_sig := match jv.get_field(part, "thoughtSignature") {
+        Some(JStr(ts)) => ts,
+        _ => "",
+      }
+      let id := if str.is_empty(thought_sig) {
+        str.concat("call_", name)
+      } else {
+        str.join(["call_", name, "|||", thought_sig], "")
+      }
       let args := match jv.get_field(fc, "args") { Some(aj) => jv.stringify(aj), None => "{}" }
       [ToolCallBegin(id, name), ToolArgChunk(id, args)]
     },

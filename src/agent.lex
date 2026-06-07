@@ -30,6 +30,7 @@ type Step = {
   tool     :: tool.Tool,
   outcome  :: tool.ToolOutcome,
   trail_id :: Str,
+  call_id  :: Str,   # LLM-assigned call_id (may include "|||thoughtSignature"); "" for scripted steps
 }
 
 # Terminal outcome of a run.
@@ -50,13 +51,13 @@ fn run(ctx :: AgentCtx, decide :: (List[Step]) -> tool.Tool) -> [sql, time, cryp
   step_loop(ctx, decide, [], 0)
 }
 
-# LLM-backed variant: decide may use [net, llm] effects (real LLM call).
-fn run_with_llm(ctx :: AgentCtx, decide :: (List[Step]) -> [net, llm] tool.Tool) -> [sql, time, crypto, net, llm] AgentResult {
+# LLM-backed variant: decide returns (tool, call_id) so thoughtSignatures survive history reconstruction.
+fn run_with_llm(ctx :: AgentCtx, decide :: (List[Step]) -> [net, llm] (tool.Tool, Str)) -> [sql, time, crypto, net, llm] AgentResult {
   step_loop_llm(ctx, decide, [], 0)
 }
 
 # LLM-backed variant that also returns the full step history (for fill simulation etc).
-fn run_with_llm_history(ctx :: AgentCtx, decide :: (List[Step]) -> [net, llm] tool.Tool) -> [sql, time, crypto, net, llm] (AgentResult, List[Step]) {
+fn run_with_llm_history(ctx :: AgentCtx, decide :: (List[Step]) -> [net, llm] (tool.Tool, Str)) -> [sql, time, crypto, net, llm] (AgentResult, List[Step]) {
   step_loop_llm_history(ctx, decide, [], 0)
 }
 
@@ -80,19 +81,21 @@ fn step_loop(ctx :: AgentCtx, decide :: (List[Step]) -> tool.Tool, history :: Li
           Ok(evt) => evt.id,
           Err(_) => "",
         }
-        let entry := { step: n, tool: t, outcome: outcome, trail_id: trail_id }
+        let entry := { step: n, tool: t, outcome: outcome, trail_id: trail_id, call_id: "" }
         step_loop(ctx, decide, list.concat(history, [entry]), n + 1)
       },
     }
   }
 }
 
-fn step_loop_llm(ctx :: AgentCtx, decide :: (List[Step]) -> [net, llm] tool.Tool, history :: List[Step], n :: Int) -> [sql, time, crypto, net, llm] AgentResult {
+fn step_loop_llm(ctx :: AgentCtx, decide :: (List[Step]) -> [net, llm] (tool.Tool, Str), history :: List[Step], n :: Int) -> [sql, time, crypto, net, llm] AgentResult {
   if n >= ctx.max_steps {
     let __tr := trail_log.append(ctx.log, kinds.budget_exhausted(), None, "{\"steps_taken\":" + int.to_str(n) + "}")
     StepLimitReached(n)
   } else {
-    let t := decide(history)
+    let tc  := decide(history)
+    let t   := match tc { (x, _) => x }
+    let cid := match tc { (_, c) => c }
     match t {
       AgentDone(reason) => {
         let __tr := trail_log.append(ctx.log, kinds.goal_met(), None, "{\"reason\":\"" + str.replace(reason, "\"", "'") + "\"}")
@@ -105,19 +108,21 @@ fn step_loop_llm(ctx :: AgentCtx, decide :: (List[Step]) -> [net, llm] tool.Tool
           Ok(evt) => evt.id,
           Err(_) => "",
         }
-        let entry := { step: n, tool: t, outcome: outcome, trail_id: trail_id }
+        let entry := { step: n, tool: t, outcome: outcome, trail_id: trail_id, call_id: cid }
         step_loop_llm(ctx, decide, list.concat(history, [entry]), n + 1)
       },
     }
   }
 }
 
-fn step_loop_llm_history(ctx :: AgentCtx, decide :: (List[Step]) -> [net, llm] tool.Tool, history :: List[Step], n :: Int) -> [sql, time, crypto, net, llm] (AgentResult, List[Step]) {
+fn step_loop_llm_history(ctx :: AgentCtx, decide :: (List[Step]) -> [net, llm] (tool.Tool, Str), history :: List[Step], n :: Int) -> [sql, time, crypto, net, llm] (AgentResult, List[Step]) {
   if n >= ctx.max_steps {
     let __tr := trail_log.append(ctx.log, kinds.budget_exhausted(), None, "{\"steps_taken\":" + int.to_str(n) + "}")
     (StepLimitReached(n), history)
   } else {
-    let t := decide(history)
+    let tc  := decide(history)
+    let t   := match tc { (x, _) => x }
+    let cid := match tc { (_, c) => c }
     match t {
       AgentDone(reason) => {
         let __tr := trail_log.append(ctx.log, kinds.goal_met(), None, "{\"reason\":\"" + str.replace(reason, "\"", "'") + "\"}")
@@ -130,7 +135,7 @@ fn step_loop_llm_history(ctx :: AgentCtx, decide :: (List[Step]) -> [net, llm] t
           Ok(evt) => evt.id,
           Err(_) => "",
         }
-        let entry := { step: n, tool: t, outcome: outcome, trail_id: trail_id }
+        let entry := { step: n, tool: t, outcome: outcome, trail_id: trail_id, call_id: cid }
         step_loop_llm_history(ctx, decide, list.concat(history, [entry]), n + 1)
       },
     }
