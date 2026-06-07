@@ -59,8 +59,8 @@ import "lex-agent/src/task"       as tk
 import "lex-oms/src/server" as srv
 
 import "../src/agent"              as oms_agent
-import "../src/anthropic_provider" as anth
-import "../src/vertex_provider"    as vertex
+import "lex-llm/src/providers/anthropic" as anth
+import "lex-llm/src/providers/vertex"    as vertex
 import "../src/llm_decide"         as llm_decide
 
 # ---- Provider selection --------------------------------------------
