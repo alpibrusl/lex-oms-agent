@@ -1,29 +1,27 @@
 # lex-oms-agent
 
-LLM-backed autonomous trading agent built on [lex-oms](https://github.com/alpibrusl/lex-oms). An LLM observes the order book, positions, and risk — then submits, cancels, and monitors orders — all via a typed tool loop with a tamper-evident audit trail.
-
-Supports **Anthropic Claude** and **Google Gemini 3.5** (via Vertex AI).
+LLM-backed autonomous trading agents for Lex with three compile-time guarantees no Python framework can match.
 
 ---
 
-## How it works
+## Three guarantees
 
-The agent loop is parameterised over a `decide` function:
+### 1. Effect isolation
 
+Every agent function declares its effects in its type signature. A compliance monitor declared `[sql]` cannot call the network. Not by a firewall rule. Not by a runtime monitor. Not by code review. The type checker proves it before the process starts.
+
+```sh
+lex check examples/chinese_wall_breach.lex
+# error: effect `net` not declared
 ```
-decide(history) -> (Tool, call_id)
-```
 
-Each turn the LLM receives the full conversation history and calls exactly one tool:
+### 2. Deterministic computation
 
-| Tool | Args |
-|---|---|
-| `observe` | `target: blotter \| positions \| risk \| audit` |
-| `submit_order` | `cl_ord_id, symbol, side, quantity` |
-| `cancel_order` | `cl_ord_id, orig_cl_ord_id, symbol, side` |
-| `done` | `reason` |
+LLMs make arithmetic errors. Gemini 3.5 Flash computed 80,000 × $420 = $56,000,000 (correct: $33,600,000) in a live test. Every number the agent acts on is computed in Lex — exact `Decimal`, no floating point — and passed to the LLM as a pre-verified fact. The LLM executes decisions; Lex owns the math.
 
-Every step is logged to a [lex-trail](https://github.com/alpibrusl/lex-trail) audit log after the tool is dispatched. The OMS pre-trade gate (risk limits → FIX conformance) runs on every order before acceptance.
+### 3. Tamper-evident audit trail
+
+Every decision is content-addressed and hash-chained via [lex-trail](https://github.com/alpibrusl/lex-trail). The root hash is independently verifiable — no party can rewrite history after the fact, including the infrastructure operator. Regulators verify without trusting your logs.
 
 ---
 
@@ -31,7 +29,7 @@ Every step is logged to a [lex-trail](https://github.com/alpibrusl/lex-trail) au
 
 ### Demo 0 — scripted agent (no LLM)
 
-7-step scripted loop: observe blotter → submit 3 orders → observe blotter → observe risk → done. All OMS machinery is real; the LLM is replaced by a hardcoded decision function.
+7-step scripted loop: observe → submit 3 orders → observe → risk → done. All OMS machinery is real.
 
 ```sh
 lex run --allow-effects concurrent,crypto,fs_read,fs_write,io,net,random,sql,time \
@@ -42,252 +40,149 @@ lex run --allow-effects concurrent,crypto,fs_read,fs_write,io,net,random,sql,tim
 
 ### Demo 1 — portfolio rebalancer
 
-Seeds a skewed portfolio (700 AAPL · 150 MSFT · 50 NVDA), then turns the LLM loose to rebalance to equal 300-share weights per symbol. The goal gives no explicit trade instructions — the agent observes positions, computes the target (300 shares each), figures out the three required trades, submits them, and calls `done`.
+Seeds a skewed portfolio (700 AAPL · 150 MSFT · 50 NVDA). LLM rebalances to equal 300-share weights with no explicit instructions — it observes positions, computes the required trades, and submits them.
 
 ```sh
-# Anthropic
 ANTHROPIC_API_KEY=sk-ant-... \
 lex run --allow-effects concurrent,crypto,env,fs_read,fs_write,io,llm,net,proc,random,sql,time \
         examples/portfolio_rebalancer.lex main
-
-# Vertex AI (Gemini 3.5 Flash)
-LLM_PROVIDER=vertex \
-VERTEX_PROJECT=my-project \
-VERTEX_ACCESS_TOKEN=$(gcloud auth print-access-token) \
-lex run --allow-effects concurrent,crypto,env,fs_read,fs_write,io,llm,net,proc,random,sql,time \
-        examples/portfolio_rebalancer.lex main
-```
-
-Sample output (Gemini — cl_ord_ids and step count vary by run):
-```
-=== PHASE 1 — Seed skewed portfolio (scripted) ===
-Seeded: 700 AAPL  150 MSFT  50 NVDA
-
-=== PHASE 2 — LLM rebalancer  [provider=vertex  model=gemini-3.5-flash] ===
-GoalMet: All three rebalancing orders have been accepted by the OMS.
-
-=== Blotter ===
-<llm-chosen-id>   AAPL sell 400   PendingNew
-<llm-chosen-id>   MSFT buy  150   PendingNew
-<llm-chosen-id>   NVDA buy  250   PendingNew
 ```
 
 ---
 
 ### Demo 2 — LLM risk monitor
 
-Seeds a base portfolio (300 AAPL · 50 MSFT · 50 NVDA), then a scripted "rogue trader" doubles down on AAPL (+300), pushing it to 600 shares — above the 500-share policy limit. The LLM risk monitor observes positions and risk, identifies the breach, sells 200 AAPL to bring it under the limit, and improves diversification by buying MSFT and NVDA.
-
-```sh
-# Anthropic
-ANTHROPIC_API_KEY=sk-ant-... \
-lex run --allow-effects concurrent,crypto,env,fs_read,fs_write,io,llm,net,proc,random,sql,time \
-        examples/risk_monitor.lex main
-
-# Vertex AI
-LLM_PROVIDER=vertex \
-VERTEX_PROJECT=my-project \
-VERTEX_ACCESS_TOKEN=$(gcloud auth print-access-token) \
-lex run --allow-effects concurrent,crypto,env,fs_read,fs_write,io,llm,net,proc,random,sql,time \
-        examples/risk_monitor.lex main
-```
+Rogue trader doubles down on AAPL (+300 shares, above the 500-share limit). LLM risk monitor observes the breach, sells the excess, improves diversification.
 
 ---
 
 ### Demo 3 — A2A trading agent server
 
-Exposes the trading agent as a [Google Agent2Agent (A2A)](https://google.github.io/A2A/) service over JSON-RPC 2.0. Any A2A-compatible client sends a natural-language trading goal; the server runs the full agent loop and returns a summary plus blotter, positions, and risk as artifacts.
+Exposes the agent as a [Google A2A](https://google.github.io/A2A/) JSON-RPC service. Any A2A-compatible client sends a natural-language trading goal; the server runs the full agent loop.
 
 ```sh
 ANTHROPIC_API_KEY=sk-ant-... \
 lex run --allow-effects concurrent,crypto,env,fs_read,fs_write,io,llm,net,proc,random,sql,time \
         examples/a2a_agent.lex main
-# Listening on :4041
+# Listening on :4041  — GET /.well-known/agent.json for the agent card
 ```
-
-Discover the agent card:
-```sh
-curl http://localhost:4041/.well-known/agent.json
-```
-
-Submit a trading goal:
-```sh
-curl -X POST http://localhost:4041/ \
-  -H 'content-type: application/json' \
-  -d '{
-    "jsonrpc": "2.0", "id": 1, "method": "tasks/send",
-    "params": {
-      "id": "t_1", "contextId": "ctx_1", "skill": "execute_trade_goal",
-      "message": {
-        "kind": "message", "messageId": "m1", "role": "user",
-        "parts": [{"type": "text", "text":
-          "Buy 100 AAPL and 50 MSFT at market. Call done when both are accepted."
-        }]
-      }
-    }
-  }'
-```
-
-Response includes:
-- `summary` — outcome text from the agent
-- `blotter` artifact — all orders and their states
-- `positions` artifact — current positions
-- `risk` artifact — portfolio Greeks and margin
 
 ---
 
 ### Demo 4 — adversarial agents
 
-Two LLM agents with opposing mandates act on the same portfolio through the same OMS. Neither is told about the other.
-
-**Setup (scripted):** seed 400 AAPL · 100 MSFT · 100 NVDA, then inject a rogue +200 AAPL fill → positions hit 600 AAPL, above the 500-share policy limit.
-
-**Agent A — Aggressive Trader:** mandate is to concentrate into the biggest holding. Sees 600 AAPL, buys more. Exchange fills are simulated immediately.
-
-**Agent B — Risk Monitor:** mandate is to enforce the 500-share limit. Observes the blotter, cancels the trader's pending buy orders, then sells the excess. Calls done when the breach is resolved.
-
-The audit trail records both agents' full decision chains on the same log.
-
-```sh
-# Anthropic
-ANTHROPIC_API_KEY=sk-ant-... \
-lex run --allow-effects concurrent,crypto,env,fs_read,fs_write,io,llm,net,proc,random,sql,time \
-        examples/adversarial.lex main
-
-# Vertex AI
-LLM_PROVIDER=vertex \
-VERTEX_PROJECT=my-project \
-VERTEX_ACCESS_TOKEN=$(gcloud auth print-access-token) \
-lex run --allow-effects concurrent,crypto,env,fs_read,fs_write,io,llm,net,proc,random,sql,time \
-        examples/adversarial.lex main
-```
+Two LLM agents with opposing mandates share the same OMS. Neither knows about the other. The trader concentrates into AAPL. The monitor enforces the 500-share limit. The audit trail records both decision chains.
 
 ---
 
-### Demo 5 — dual-breach compliance monitor
+### Demo 5 — dual-breach compliance (MiFID II Art. 57)
 
-A $112M institutional equity portfolio governed by MiFID II Article 57: no single position may exceed $50,000,000 notional. Two rogue fills bypass the OMS gate and breach both AAPL (+$2.5M) and MSFT (+$2.5M). The **Lex risk engine** computes the exact corrective sell quantities before the LLM runs — the agent submits the pre-computed trades and files a formal dual-breach incident report. Every step is hash-chained in a tamper-evident audit trail.
+$112M institutional portfolio. Two rogue fills bypass the OMS gate. **Lex** computes the corrective sell quantities (ceiling division, no LLM arithmetic). Compliance agent submits pre-computed trades and files a formal dual-breach incident report.
 
 ```sh
-# Anthropic
 ANTHROPIC_API_KEY=sk-ant-... \
-lex run --allow-effects concurrent,crypto,env,fs_read,fs_write,io,llm,net,proc,random,sql,time \
-        examples/compliance.lex main
-
-# Vertex AI
-LLM_PROVIDER=vertex \
-VERTEX_PROJECT=my-project \
-VERTEX_ACCESS_TOKEN=$(gcloud auth print-access-token) \
 lex run --allow-effects concurrent,crypto,env,fs_read,fs_write,io,llm,net,proc,random,sql,time \
         examples/compliance.lex main
 ```
 
-Sample output (Gemini 3.5 Flash):
+---
+
+### Demo 6 — live enforcement
+
+The flagship demo. $112M portfolio, three phases:
+
+1. **Risk engine (Lex):** computes corrective sells for AAPL and MSFT breaches — deterministic, no LLM involved
+2. **Momentum Trader (LLM):** AAPL blocked ($52.5M cap), MSFT blocked ($52.5M cap), NVDA buy accepted → `PendingNew`
+3. **Compliance Monitor (LLM):** cancels NVDA buy before exchange sees it, submits corrective sells, files MiFID II incident report
+
+```sh
+ANTHROPIC_API_KEY=sk-ant-... \
+lex run --allow-effects concurrent,crypto,env,fs_read,fs_write,io,llm,net,proc,random,sql,time \
+        examples/enforcement.lex main
 ```
-=== PORTFOLIO — Seed positions (all within limit) ===
-  Policy: MiFID II Art. 57  |  Limit: $50,000,000 max notional per name
-  AAPL: 200,000 shares x $175 = $35,000,000
-  MSFT:  80,000 shares x $420 = $33,600,000
-  NVDA:  50,000 shares x $875 = $43,750,000
-  NAV: $112,350,000
 
-=== INCIDENT — Unauthorised fills injected (bypass OMS gate) ===
-  ROGUE-AAPL  +100,000 shares → injected via execution report
-  ROGUE-MSFT   +45,000 shares → injected via execution report
-  AAPL: 300,000 shares x $175 = $52,500,000  *** BREACH $2,500,000 over limit ***
-  MSFT: 125,000 shares x $420 = $52,500,000  *** BREACH $2,500,000 over limit ***
+```
+=== AGENT A  —  Momentum Trader ===
+done: AAPL blocked, MSFT blocked, NVDA buy 5,000 accepted — PendingNew.
 
-=== RISK ENGINE — corrective quantities (deterministic) ===
-  AAPL  excess $2,500,000  →  sell 14,286 shares  (restored to $49,999,950)
-  MSFT  excess $2,500,000  →  sell  5,953 shares  (restored to $49,999,740)
-  No LLM involved in this computation.
-
-=== COMPLIANCE INCIDENT REPORT ===
-MiFID II Article 57 Incident Report:
-1. Breaches: AAPL $52,500,000 (+$2,500,000)  MSFT $52,500,000 (+$2,500,000)
-2. Corrective sells: AAPL 14,286 shares  MSFT 5,953 shares
-3. Positions restored within limit.
+=== AGENT B  —  Compliance Monitor ===
+1. Cancelled: NVDA buy (PendingNew → PendingCancel — never reached exchange)
+2. Sold: AAPL 14,286 shares  (restored to $49,999,950)
+3. Sold: MSFT  5,953 shares  (restored to $49,999,740)
 ```
 
 ---
 
-### Demo 6 — live enforcement (momentum trader vs compliance monitor)
+### Demo 7 — Chinese wall
 
-The flagship demo. Three guarantees that no Python framework can offer:
+**CLIENT_ALPHA** (500 AAPL · 200 MSFT) and **CLIENT_BETA** (100 AAPL · 400 NVDA) share the same OMS. Neither agent can see the other's data. Two independent isolation layers, both compile-time:
 
-1. **Effect isolation** — the compliance monitor is declared `[sql, llm]`. It cannot touch the network or filesystem. Not by policy. Not by runtime monitoring. Proven at compile time. (See `examples/bad_agent.lex`.)
-
-2. **Live enforcement** — the compliance monitor intercepts the momentum trader's pending buy before the exchange sees it. The OMS is the single enforcement point. Both agents share it.
-
-3. **Tamper-evident chain** — every decision is content-addressed and hash-chained. No party can rewrite history. Regulators verify the root hash independently.
-
-**Timeline:**
-1. Seed: AAPL $35M · MSFT $33.6M · NVDA $43.75M (NAV $112,350,000)
-2. Two rogue fills bypass the OMS gate (injected via execution reports): AAPL +100k → $52.5M breach, MSFT +45k → $52.5M breach
-3. **Lex risk engine** (deterministic, no LLM): AAPL corrective sell = 14,286 shares · MSFT = 5,953 shares
-4. **Momentum Trader (LLM):** AAPL buy → blocked ($52.5M cap), MSFT buy → blocked ($52.5M cap), NVDA buy → accepted → **PendingNew**
-5. **Compliance Monitor (LLM):** cancels trader's NVDA buy before exchange fills it → sells 14,286 AAPL → sells 5,953 MSFT → files formal incident report
+- **Structural:** each agent's context holds only its own `ConnDb`. In Lex there is no global state. `db_beta` does not exist as a variable inside the alpha agent's scope.
+- **Effect:** each reporting function is declared `[sql]`. It cannot call `[net]`, `[io]`, or `[fs_write]`.
 
 ```sh
-# Anthropic
-ANTHROPIC_API_KEY=sk-ant-... \
-lex run --allow-effects concurrent,crypto,env,fs_read,fs_write,io,llm,net,proc,random,sql,time \
-        examples/enforcement.lex main
-
-# Vertex AI
-LLM_PROVIDER=vertex \
-VERTEX_PROJECT=my-project \
-VERTEX_ACCESS_TOKEN=$(gcloud auth print-access-token) \
-lex run --allow-effects concurrent,crypto,env,fs_read,fs_write,io,llm,net,proc,random,sql,time \
-        examples/enforcement.lex main
+lex run --allow-effects concurrent,crypto,fs_read,fs_write,io,llm,net,proc,random,sql,time \
+        examples/isolation.lex main
 ```
 
-Sample output (Gemini 3.5 Flash):
 ```
-=== PORTFOLIO  —  seed positions, all within limit ===
-  Policy: MiFID II Art. 57  |  Limit: $50,000,000 max notional per name
-  AAPL:  200,000 shares  x  $175  =  $35,000,000
-  MSFT:   80,000 shares  x  $420  =  $33,600,000
-  NVDA:   50,000 shares  x  $875  =  $43,750,000  NAV: $112,350,000
+=== CLIENT_ALPHA positions  (reads db_alpha) ===
+[{"symbol":"AAPL","qty":500,...},{"symbol":"MSFT","qty":200,...}]
 
-=== INCIDENT  —  two rogue fills bypass OMS gate ===
-  AAPL: 300,000 x $175 = $52,500,000  *** BREACH $2,500,000 over limit ***
-  MSFT: 125,000 x $420 = $52,500,000  *** BREACH $2,500,000 over limit ***
+=== CLIENT_BETA positions  (reads db_beta) ===
+[{"symbol":"AAPL","qty":100,...},{"symbol":"NVDA","qty":400,...}]
 
-=== RISK ENGINE  —  corrective quantities (deterministic) ===
-  AAPL  excess $2,500,000  →  sell 14,286 shares
-  MSFT  excess $2,500,000  →  sell  5,953 shares
-  No LLM involved in this computation.
+=== CHINESE WALL PROOF ===
+  ALPHA sees AAPL: 500 shares
+  BETA  sees AAPL: 100 shares
+  Same symbol. Separate databases. Zero leakage.
+```
 
-=== AGENT A  —  Momentum Trader  [vertex / gemini-3.5-flash] ===
-  done: AAPL blocked, MSFT blocked, NVDA buy 5,000 accepted — PendingNew.
-  NOTE: exchange fills NOT applied — the buy is PendingNew in the OMS blotter.
-
-=== AGENT B  —  Compliance Monitor  [vertex / gemini-3.5-flash] ===
-
-=== COMPLIANCE INCIDENT REPORT ===
-1. Breaches: AAPL $52,500,000 (+$2,500,000)  MSFT $52,500,000 (+$2,500,000)
-2. Orders cancelled: NVDA buy 5,000 (PendingNew → PendingCancel — never reached exchange)
-3. Corrective sells: AAPL 14,286 shares  MSFT 5,953 shares
-4. Positions restored within MiFID II Art. 57 limit.
+```sh
+# Effect layer — see what the compiler rejects
+lex check examples/chinese_wall_breach.lex
+# error: effect `net` not declared
 ```
 
 ---
 
 ### Effect isolation proof — `bad_agent.lex`
 
-This file intentionally does not compile. A compliance agent declared `[sql]` — allowed to read the database and nothing else — tries to call `net.post`. The compiler rejects it:
-
 ```sh
 lex check examples/bad_agent.lex
 # error: effect `net` not declared
 ```
 
-Not by a policy check at runtime. Not by code review. By the type system, before a single byte leaves the machine. A prompt injection cannot make a `[sql]` function call `[net]`. The guarantee is structural.
+A compliance agent declared `[sql]` tries to exfiltrate positions via `net.post`. The compiler rejects it. Not a firewall. Not a runtime check. The type system proves it structurally. A prompt injection cannot make a `[sql]` function call `[net]`.
 
 ---
 
-## Environment variables
+## How it works
+
+The agent loop is parameterised over a `decide` function:
+
+```
+decide(history) -> Tool
+```
+
+For LLM-backed agents: `decide(history) -> [net, llm] (Tool, call_id)`
+
+Each turn the LLM receives the full conversation history and calls exactly one tool:
+
+| Tool | Args |
+|---|---|
+| `observe` | `target: blotter \| positions \| risk \| audit` |
+| `submit_order` | `cl_ord_id, symbol, side, quantity` |
+| `cancel_order` | `cl_ord_id, orig_cl_ord_id, symbol, side` |
+| `done` | `reason` (becomes the incident report) |
+
+Every step is logged to the lex-trail audit log after dispatch.
+
+---
+
+## Providers
+
+Supports **Anthropic Claude** and **Google Gemini 3.5** (via Vertex AI).
 
 | Variable | Default | Description |
 |---|---|---|
@@ -295,30 +190,25 @@ Not by a policy check at runtime. Not by code review. By the type system, before
 | `ANTHROPIC_API_KEY` | — | Anthropic API key |
 | `ANTHROPIC_MODEL` | `claude-haiku-4-5-20251001` | Any Claude model ID |
 | `VERTEX_PROJECT` | — | GCP project ID |
-| `VERTEX_ACCESS_TOKEN` | — | OAuth2 bearer token (`gcloud auth print-access-token`) |
-| `VERTEX_API_KEY` | — | Alternative to `VERTEX_ACCESS_TOKEN` |
-| `VERTEX_LOCATION` | `eu` | Multi-region (`eu`, `us`, `global`) or regional (`europe-west1`, …) |
-| `VERTEX_MODEL` | `gemini-3.5-flash` | Any Gemini model available on Vertex AI |
+| `VERTEX_ACCESS_TOKEN` | — | `$(gcloud auth print-access-token)` |
+| `VERTEX_LOCATION` | `eu` | `eu`, `us`, `global`, or regional |
+| `VERTEX_MODEL` | `gemini-3.5-flash` | Any Gemini model on Vertex AI |
+
+---
+
+## In the stack
+
+```
+lex-oms  (HTTP order management system)
+    ↓
+lex-oms-agent  ←  LLM agent layer
+```
 
 ---
 
 ## Install
 
 ```toml
-# lex.toml
 [dependencies]
 "lex-oms-agent" = { git = "https://github.com/alpibrusl/lex-oms-agent" }
 ```
-
----
-
-## Stack
-
-| Package | Role |
-|---|---|
-| [lex-oms](https://github.com/alpibrusl/lex-oms) | HTTP OMS — orders, execution reports, positions, risk |
-| [lex-llm](https://github.com/alpibrusl/lex-llm) | Provider abstraction (Anthropic, Vertex AI, OpenAI, Ollama) |
-| [lex-trail](https://github.com/alpibrusl/lex-trail) | Content-addressed attestation log |
-| [lex-agent](https://github.com/alpibrusl/lex-agent) | A2A server + agent card |
-| [lex-spec](https://github.com/alpibrusl/lex-spec) | Spec-gated capability preconditions |
-| [lex-schema](https://github.com/alpibrusl/lex-schema) | Schema + JSON validation |
