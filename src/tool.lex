@@ -51,13 +51,21 @@ fn get_ctx() -> { method :: Str, path :: Str, query :: Str, body :: Str, path_pa
   post_ctx("")
 }
 
+# ---- JSON helpers ---------------------------------------------------
+
+# Escape backslashes then double-quotes so LLM-supplied strings cannot
+# inject extra fields into the JSON body sent to the OMS.
+fn escape_json_str(s :: Str) -> Str {
+  str.replace(str.replace(s, "\\", "\\\\"), "\"", "\\\"")
+}
+
 # ---- JSON builders --------------------------------------------------
 fn order_json(p :: OrderParams) -> Str {
-  "{\"cl_ord_id\":\"" + p.cl_ord_id + "\",\"symbol\":\"" + p.symbol + "\",\"side\":\"" + p.side + "\",\"quantity\":" + int.to_str(p.quantity) + ",\"order_type\":\"market\",\"price\":\"\",\"stop_price\":\"\",\"time_in_force\":\"\",\"account\":\"\",\"trader_id\":\"AGENT\",\"timestamp\":\"\"}"
+  "{\"cl_ord_id\":\"" + escape_json_str(p.cl_ord_id) + "\",\"symbol\":\"" + escape_json_str(p.symbol) + "\",\"side\":\"" + escape_json_str(p.side) + "\",\"quantity\":" + int.to_str(p.quantity) + ",\"order_type\":\"market\",\"price\":\"\",\"stop_price\":\"\",\"time_in_force\":\"\",\"account\":\"\",\"trader_id\":\"AGENT\",\"timestamp\":\"\"}"
 }
 
 fn cancel_json(p :: CancelParams) -> Str {
-  "{\"cl_ord_id\":\"" + p.cl_ord_id + "\",\"orig_cl_ord_id\":\"" + p.orig_cl_ord_id + "\",\"account\":\"\",\"symbol\":\"" + p.symbol + "\",\"side\":\"" + p.side + "\",\"order_qty\":0,\"timestamp\":\"\"}"
+  "{\"cl_ord_id\":\"" + escape_json_str(p.cl_ord_id) + "\",\"orig_cl_ord_id\":\"" + escape_json_str(p.orig_cl_ord_id) + "\",\"account\":\"\",\"symbol\":\"" + escape_json_str(p.symbol) + "\",\"side\":\"" + escape_json_str(p.side) + "\",\"order_qty\":0,\"timestamp\":\"\"}"
 }
 
 # ---- Dispatch -------------------------------------------------------
