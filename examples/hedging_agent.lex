@@ -182,12 +182,15 @@ fn fmt4(x :: Float) -> Str {
   sign + int.to_str(integer) + "." + fstr
 }
 
-# Format a Float as a dollar amount (2dp)
+# Format a Float as a dollar amount (2dp), handles negative values
 fn fmt_usd_f(x :: Float) -> Str {
-  let cents   := float.to_int(x * 100.0 + 0.5)
+  let neg     := x < 0.0
+  let abs_x   := if neg { 0.0 - x } else { x }
+  let cents   := float.to_int(abs_x * 100.0 + 0.5)
   let dollars := cents / 100
   let c       := cents - dollars * 100
-  "$" + format_commas(dollars) + "." + if c < 10 { "0" + int.to_str(c) } else { int.to_str(c) }
+  let sign    := if neg { "-" } else { "" }
+  sign + "$" + format_commas(dollars) + "." + if c < 10 { "0" + int.to_str(c) } else { int.to_str(c) }
 }
 
 # ---- Demo ----------------------------------------------------------
