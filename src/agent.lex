@@ -6,11 +6,17 @@
 #   - a real LLM via lex-llm or a direct Anthropic HTTP call
 #   - a rule-based engine
 #
-# Every step is recorded as a trail event (agent.decision.made) before
-# the tool is dispatched, giving a tamper-evident log of every choice
-# the agent made and why it succeeded or failed.
+# Audit ordering per step:
+#   1. agent.decision.intent  — logged BEFORE dispatch (proves what was decided)
+#      → if this write fails, dispatch is skipped and the loop halts
+#   2. tool.dispatch()        — OMS call; lex-trail records trade events here
+#   3. agent.decision.made    — logged AFTER dispatch with outcome; parent = intent id
+#      → if this write fails, the loop halts (audit contract broken)
 #
-# Effects: [sql, time]
+# Trail failures on terminal events (goal.met, budget.exhausted) are noted but
+# do not suppress the result — the agent has already finished acting.
+#
+# Effects: [sql, time, crypto]
 
 import "std.list" as list
 import "std.str" as str
@@ -65,24 +71,31 @@ fn run_with_llm_history(ctx :: AgentCtx, decide :: (List[Step]) -> [net, llm] (t
 
 fn step_loop(ctx :: AgentCtx, decide :: (List[Step]) -> tool.Tool, history :: List[Step], n :: Int) -> [sql, time, crypto] AgentResult {
   if n >= ctx.max_steps {
-    let __tr := trail_log.append(ctx.log, kinds.budget_exhausted(), None, "{\"steps_taken\":" + int.to_str(n) + "}")
+    let _trail := trail_log.append(ctx.log, kinds.budget_exhausted(), None, "{\"steps_taken\":" + int.to_str(n) + "}")
     StepLimitReached(n)
   } else {
     let t := decide(history)
     match t {
       AgentDone(reason) => {
-        let __tr := trail_log.append(ctx.log, kinds.goal_met(), None, "{\"reason\":\"" + str.replace(reason, "\"", "'") + "\"}")
+        let _trail := trail_log.append(ctx.log, kinds.goal_met(), None, "{\"reason\":\"" + tool.escape_json_str(reason) + "\"}")
         GoalMet(reason)
       },
       _ => {
-        let outcome := tool.dispatch(ctx.db, ctx.log, t)
-        let payload := make_payload(n, t, outcome)
-        let trail_id := match trail_log.append(ctx.log, kinds.decision_made(), None, payload) {
-          Ok(evt) => evt.id,
-          Err(_) => "",
+        let intent_payload := "{\"step\":" + int.to_str(n) + ",\"tool\":\"" + tool.tool_name(t) + "\"}"
+        match trail_log.append(ctx.log, kinds.decision_intent(), None, intent_payload) {
+          Err(_) => StepLimitReached(n),
+          Ok(intent_evt) => {
+            let outcome := tool.dispatch(ctx.db, ctx.log, t)
+            let payload := make_payload(n, t, outcome)
+            match trail_log.append(ctx.log, kinds.decision_made(), Some(intent_evt.id), payload) {
+              Err(_) => StepLimitReached(n),
+              Ok(out_evt) => {
+                let entry := { step: n, tool: t, outcome: outcome, trail_id: out_evt.id, call_id: "" }
+                step_loop(ctx, decide, list.concat(history, [entry]), n + 1)
+              },
+            }
+          },
         }
-        let entry := { step: n, tool: t, outcome: outcome, trail_id: trail_id, call_id: "" }
-        step_loop(ctx, decide, list.concat(history, [entry]), n + 1)
       },
     }
   }
@@ -90,7 +103,7 @@ fn step_loop(ctx :: AgentCtx, decide :: (List[Step]) -> tool.Tool, history :: Li
 
 fn step_loop_llm(ctx :: AgentCtx, decide :: (List[Step]) -> [net, llm] (tool.Tool, Str), history :: List[Step], n :: Int) -> [sql, time, crypto, net, llm] AgentResult {
   if n >= ctx.max_steps {
-    let __tr := trail_log.append(ctx.log, kinds.budget_exhausted(), None, "{\"steps_taken\":" + int.to_str(n) + "}")
+    let _trail := trail_log.append(ctx.log, kinds.budget_exhausted(), None, "{\"steps_taken\":" + int.to_str(n) + "}")
     StepLimitReached(n)
   } else {
     let tc  := decide(history)
@@ -98,18 +111,25 @@ fn step_loop_llm(ctx :: AgentCtx, decide :: (List[Step]) -> [net, llm] (tool.Too
     let cid := match tc { (_, c) => c }
     match t {
       AgentDone(reason) => {
-        let __tr := trail_log.append(ctx.log, kinds.goal_met(), None, "{\"reason\":\"" + str.replace(reason, "\"", "'") + "\"}")
+        let _trail := trail_log.append(ctx.log, kinds.goal_met(), None, "{\"reason\":\"" + tool.escape_json_str(reason) + "\"}")
         GoalMet(reason)
       },
       _ => {
-        let outcome := tool.dispatch(ctx.db, ctx.log, t)
-        let payload := make_payload(n, t, outcome)
-        let trail_id := match trail_log.append(ctx.log, kinds.decision_made(), None, payload) {
-          Ok(evt) => evt.id,
-          Err(_) => "",
+        let intent_payload := "{\"step\":" + int.to_str(n) + ",\"tool\":\"" + tool.tool_name(t) + "\"}"
+        match trail_log.append(ctx.log, kinds.decision_intent(), None, intent_payload) {
+          Err(_) => StepLimitReached(n),
+          Ok(intent_evt) => {
+            let outcome := tool.dispatch(ctx.db, ctx.log, t)
+            let payload := make_payload(n, t, outcome)
+            match trail_log.append(ctx.log, kinds.decision_made(), Some(intent_evt.id), payload) {
+              Err(_) => StepLimitReached(n),
+              Ok(out_evt) => {
+                let entry := { step: n, tool: t, outcome: outcome, trail_id: out_evt.id, call_id: cid }
+                step_loop_llm(ctx, decide, list.concat(history, [entry]), n + 1)
+              },
+            }
+          },
         }
-        let entry := { step: n, tool: t, outcome: outcome, trail_id: trail_id, call_id: cid }
-        step_loop_llm(ctx, decide, list.concat(history, [entry]), n + 1)
       },
     }
   }
@@ -117,7 +137,7 @@ fn step_loop_llm(ctx :: AgentCtx, decide :: (List[Step]) -> [net, llm] (tool.Too
 
 fn step_loop_llm_history(ctx :: AgentCtx, decide :: (List[Step]) -> [net, llm] (tool.Tool, Str), history :: List[Step], n :: Int) -> [sql, time, crypto, net, llm] (AgentResult, List[Step]) {
   if n >= ctx.max_steps {
-    let __tr := trail_log.append(ctx.log, kinds.budget_exhausted(), None, "{\"steps_taken\":" + int.to_str(n) + "}")
+    let _trail := trail_log.append(ctx.log, kinds.budget_exhausted(), None, "{\"steps_taken\":" + int.to_str(n) + "}")
     (StepLimitReached(n), history)
   } else {
     let tc  := decide(history)
@@ -125,18 +145,25 @@ fn step_loop_llm_history(ctx :: AgentCtx, decide :: (List[Step]) -> [net, llm] (
     let cid := match tc { (_, c) => c }
     match t {
       AgentDone(reason) => {
-        let __tr := trail_log.append(ctx.log, kinds.goal_met(), None, "{\"reason\":\"" + str.replace(reason, "\"", "'") + "\"}")
+        let _trail := trail_log.append(ctx.log, kinds.goal_met(), None, "{\"reason\":\"" + tool.escape_json_str(reason) + "\"}")
         (GoalMet(reason), history)
       },
       _ => {
-        let outcome := tool.dispatch(ctx.db, ctx.log, t)
-        let payload := make_payload(n, t, outcome)
-        let trail_id := match trail_log.append(ctx.log, kinds.decision_made(), None, payload) {
-          Ok(evt) => evt.id,
-          Err(_) => "",
+        let intent_payload := "{\"step\":" + int.to_str(n) + ",\"tool\":\"" + tool.tool_name(t) + "\"}"
+        match trail_log.append(ctx.log, kinds.decision_intent(), None, intent_payload) {
+          Err(_) => (StepLimitReached(n), history),
+          Ok(intent_evt) => {
+            let outcome := tool.dispatch(ctx.db, ctx.log, t)
+            let payload := make_payload(n, t, outcome)
+            match trail_log.append(ctx.log, kinds.decision_made(), Some(intent_evt.id), payload) {
+              Err(_) => (StepLimitReached(n), history),
+              Ok(out_evt) => {
+                let entry := { step: n, tool: t, outcome: outcome, trail_id: out_evt.id, call_id: cid }
+                step_loop_llm_history(ctx, decide, list.concat(history, [entry]), n + 1)
+              },
+            }
+          },
         }
-        let entry := { step: n, tool: t, outcome: outcome, trail_id: trail_id, call_id: cid }
-        step_loop_llm_history(ctx, decide, list.concat(history, [entry]), n + 1)
       },
     }
   }
