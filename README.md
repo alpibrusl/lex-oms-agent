@@ -43,7 +43,7 @@ lex run --allow-effects concurrent,crypto,fs_read,fs_write,io,net,random,sql,tim
 Seeds a skewed portfolio (700 AAPL · 150 MSFT · 50 NVDA). LLM rebalances to equal 300-share weights with no explicit instructions — it observes positions, computes the required trades, and submits them.
 
 ```sh
-ANTHROPIC_API_KEY=sk-ant-... \
+VERTEX_PROJECT=my-gcp-project \
 lex run --allow-effects concurrent,crypto,env,fs_read,fs_write,io,llm,net,proc,random,sql,time \
         examples/portfolio_rebalancer.lex main
 ```
@@ -54,6 +54,12 @@ lex run --allow-effects concurrent,crypto,env,fs_read,fs_write,io,llm,net,proc,r
 
 Rogue trader doubles down on AAPL (+300 shares, above the 500-share limit). LLM risk monitor observes the breach, sells the excess, improves diversification.
 
+```sh
+VERTEX_PROJECT=my-gcp-project \
+lex run --allow-effects concurrent,crypto,env,fs_read,fs_write,io,llm,net,proc,random,sql,time \
+        examples/risk_monitor.lex main
+```
+
 ---
 
 ### Demo 3 — A2A trading agent server
@@ -61,7 +67,7 @@ Rogue trader doubles down on AAPL (+300 shares, above the 500-share limit). LLM 
 Exposes the agent as a [Google A2A](https://google.github.io/A2A/) JSON-RPC service. Any A2A-compatible client sends a natural-language trading goal; the server runs the full agent loop.
 
 ```sh
-ANTHROPIC_API_KEY=sk-ant-... \
+VERTEX_PROJECT=my-gcp-project \
 lex run --allow-effects concurrent,crypto,env,fs_read,fs_write,io,llm,net,proc,random,sql,time \
         examples/a2a_agent.lex main
 # Listening on :4041  — GET /.well-known/agent.json for the agent card
@@ -73,6 +79,12 @@ lex run --allow-effects concurrent,crypto,env,fs_read,fs_write,io,llm,net,proc,r
 
 Two LLM agents with opposing mandates share the same OMS. Neither knows about the other. The trader concentrates into AAPL. The monitor enforces the 500-share limit. The audit trail records both decision chains.
 
+```sh
+VERTEX_PROJECT=my-gcp-project \
+lex run --allow-effects concurrent,crypto,env,fs_read,fs_write,io,llm,net,proc,random,sql,time \
+        examples/adversarial.lex main
+```
+
 ---
 
 ### Demo 5 — dual-breach compliance (MiFID II Art. 57)
@@ -80,7 +92,7 @@ Two LLM agents with opposing mandates share the same OMS. Neither knows about th
 $112M institutional portfolio. Two rogue fills bypass the OMS gate. **Lex** computes the corrective sell quantities (ceiling division, no LLM arithmetic). Compliance agent submits pre-computed trades and files a formal dual-breach incident report.
 
 ```sh
-ANTHROPIC_API_KEY=sk-ant-... \
+VERTEX_PROJECT=my-gcp-project \
 lex run --allow-effects concurrent,crypto,env,fs_read,fs_write,io,llm,net,proc,random,sql,time \
         examples/compliance.lex main
 ```
@@ -96,7 +108,7 @@ The flagship demo. $112M portfolio, three phases:
 3. **Compliance Monitor (LLM):** cancels NVDA buy before exchange sees it, submits corrective sells, files MiFID II incident report
 
 ```sh
-ANTHROPIC_API_KEY=sk-ant-... \
+VERTEX_PROJECT=my-gcp-project \
 lex run --allow-effects concurrent,crypto,env,fs_read,fs_write,io,llm,net,proc,random,sql,time \
         examples/enforcement.lex main
 ```
@@ -146,6 +158,45 @@ lex check examples/chinese_wall_breach.lex
 
 ---
 
+### Demo 8 — continuous enforcement (concurrent actors)
+
+Same $112M scenario as Demo 6, but both the Momentum Trader and the Compliance Monitor run as concurrent `std.conc` actors sharing the same OMS database. Compliance fires after every trader action without a full sequential lock — models a production deployment where the monitor is always on.
+
+```sh
+VERTEX_PROJECT=my-gcp-project \
+lex run --allow-effects concurrent,crypto,env,fs_read,fs_write,io,llm,net,proc,random,sql,time \
+        examples/continuous_enforcement.lex main
+```
+
+---
+
+### Demo 9 — autonomous hedging agent
+
+Demonstrates that deterministic quantitative finance and LLM execution live in the same program with a compile-time wall between them.
+
+- **Risk engine (Effects: none):** prices a 30-day ATM protective put on 1,000 NVDA using Black-Scholes (`lex-risk/src/options.lex`) — put price, delta, gamma, vega, theta. Provably pure: the pricing code cannot touch the network, database, or LLM.
+- **LLM hedging agent (`[sql, llm, net, time, crypto]`):** receives the precomputed delta and hedge size, observes the position, submits the delta-neutral sell through the OMS gate.
+
+```sh
+VERTEX_PROJECT=my-gcp-project \
+lex run --allow-effects concurrent,crypto,env,fs_read,fs_write,io,llm,net,proc,random,sql,time \
+        examples/hedging_agent.lex main
+```
+
+```
+=== RISK ENGINE  —  Black-Scholes ATM 30-day put  [pure Lex, no effects] ===
+  Inputs:  Spot $875  Strike $875  σ 45%  r 5.25%  T 30 days
+  Put price:  $44.81 / share
+  Put delta:  -0.4730
+  Delta-neutral hedge: sell 472 NVDA  (⌊1000 × 0.4730⌋)
+
+=== LLM HEDGING AGENT  [vertex / gemini-3.5-flash] ===
+  Position observed (1,000 NVDA), delta hedge of 472 shares submitted,
+  residual net delta +528 shares.
+```
+
+---
+
 ### Effect isolation proof — `bad_agent.lex`
 
 ```sh
@@ -182,17 +233,17 @@ Every step is logged to the lex-trail audit log after dispatch.
 
 ## Providers
 
-Supports **Anthropic Claude** and **Google Gemini 3.5** (via Vertex AI).
+Set `VERTEX_PROJECT` to use Vertex AI — picked up automatically, no `LLM_PROVIDER` flag needed. Set `ANTHROPIC_API_KEY` for Claude. Vertex is preferred when both are configured.
 
-| Variable | Default | Description |
-|---|---|---|
-| `LLM_PROVIDER` | `anthropic` | `anthropic` or `vertex` |
-| `ANTHROPIC_API_KEY` | — | Anthropic API key |
-| `ANTHROPIC_MODEL` | `claude-haiku-4-5-20251001` | Any Claude model ID |
-| `VERTEX_PROJECT` | — | GCP project ID |
-| `VERTEX_ACCESS_TOKEN` | — | `$(gcloud auth print-access-token)` |
-| `VERTEX_LOCATION` | `eu` | `eu`, `us`, `global`, or regional |
-| `VERTEX_MODEL` | `gemini-3.5-flash` | Any Gemini model on Vertex AI |
+| Variable | Description |
+|---|---|
+| `VERTEX_PROJECT` | GCP project ID — enables Vertex AI automatically |
+| `VERTEX_ACCESS_TOKEN` | Bearer token: `$(gcloud auth print-access-token)` |
+| `VERTEX_LOCATION` | Region: `eu`, `us`, `global`, or regional (default: `eu`) |
+| `VERTEX_MODEL` | Gemini model on Vertex AI (default: `gemini-3.5-flash`) |
+| `ANTHROPIC_API_KEY` | Anthropic API key — used when `VERTEX_PROJECT` is not set |
+| `ANTHROPIC_MODEL` | Claude model ID (default: `claude-haiku-4-5-20251001`) |
+| `LLM_PROVIDER` | Set to `vertex` to force Vertex even without `VERTEX_PROJECT` |
 
 ---
 
