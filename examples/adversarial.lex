@@ -19,6 +19,11 @@
 # The audit trail records both agents' decision chains on the same log.
 #
 # Run:
+#   VERTEX_PROJECT=my-gcp-project \
+#   lex run --allow-effects concurrent,crypto,env,fs_read,fs_write,io,llm,net,proc,random,sql,time \
+#           examples/adversarial.lex main
+#
+#   Or with Anthropic:
 #   ANTHROPIC_API_KEY=sk-ant-... \
 #   lex run --allow-effects concurrent,crypto,env,fs_read,fs_write,io,llm,net,proc,random,sql,time \
 #           examples/adversarial.lex main
@@ -51,34 +56,33 @@ fn get_env(key :: Str) -> [env] Str {
 }
 
 fn select_provider() -> [env] prov.Provider {
-  match get_env("LLM_PROVIDER") {
-    "vertex" => {
-      let project      := get_env("VERTEX_PROJECT")
-      let location     := get_env("VERTEX_LOCATION")
-      let token        := get_env("VERTEX_ACCESS_TOKEN")
-      let api_key      := get_env("VERTEX_API_KEY")
-      let access_token := if str.is_empty(token) { api_key } else { token }
-      let cfg := if str.is_empty(location) {
-        vertex.default_config(access_token, project)
-      } else {
-        vertex.config_at(access_token, project, location)
-      }
-      vertex.make_provider(cfg)
-    },
-    _ => anth.make_provider(anth.default_config(get_env("ANTHROPIC_API_KEY"))),
+  let vertex_proj := get_env("VERTEX_PROJECT")
+  let use_vertex  := get_env("LLM_PROVIDER") == "vertex" or not str.is_empty(vertex_proj)
+  if use_vertex {
+    let location     := get_env("VERTEX_LOCATION")
+    let token        := get_env("VERTEX_ACCESS_TOKEN")
+    let api_key      := get_env("VERTEX_API_KEY")
+    let access_token := if str.is_empty(token) { api_key } else { token }
+    let cfg := if str.is_empty(location) {
+      vertex.default_config(access_token, vertex_proj)
+    } else {
+      vertex.config_at(access_token, vertex_proj, location)
+    }
+    vertex.make_provider(cfg)
+  } else {
+    anth.make_provider(anth.default_config(get_env("ANTHROPIC_API_KEY")))
   }
 }
 
 fn select_model() -> [env] prov.ModelRef {
-  match get_env("LLM_PROVIDER") {
-    "vertex" => {
-      let m := get_env("VERTEX_MODEL")
-      if str.is_empty(m) { vertex.gemini_35_flash() } else { { provider: "vertex", model: m } }
-    },
-    _ => {
-      let m := get_env("ANTHROPIC_MODEL")
-      if str.is_empty(m) { prov.claude_haiku() } else { { provider: "anthropic", model: m } }
-    },
+  let vertex_proj := get_env("VERTEX_PROJECT")
+  let use_vertex  := get_env("LLM_PROVIDER") == "vertex" or not str.is_empty(vertex_proj)
+  if use_vertex {
+    let m := get_env("VERTEX_MODEL")
+    if str.is_empty(m) { vertex.gemini_35_flash() } else { { provider: "vertex", model: m } }
+  } else {
+    let m := get_env("ANTHROPIC_MODEL")
+    if str.is_empty(m) { prov.claude_haiku() } else { { provider: "anthropic", model: m } }
   }
 }
 
@@ -247,13 +251,23 @@ fn run_demo(db :: conn.ConnDb, log :: trail_log.Log, provider :: prov.Provider, 
 }
 
 fn main() -> [sql, time, crypto, net, llm, io, env, fs_write, concurrent, random, fs_read, proc] Unit {
-  let provider := select_provider()
-  let model    := select_model()
-  match conn.connect_sqlite(":memory:") {
-    Err(e)  => io.print("db error: " + dbe.message(e)),
-    Ok(db)  => match trail_log.open_memory() {
-      Err(m)  => io.print("trail error: " + m),
-      Ok(log) => run_demo(db, log, provider, model),
-    },
+  let vertex_proj := get_env("VERTEX_PROJECT")
+  let anth_key    := get_env("ANTHROPIC_API_KEY")
+  let has_vertex  := get_env("LLM_PROVIDER") == "vertex" or not str.is_empty(vertex_proj)
+  let configured  := has_vertex or not str.is_empty(anth_key)
+  if not configured {
+    let __ := io.print("ERROR: no LLM provider configured.")
+    let __ := io.print("  Set VERTEX_PROJECT=<gcp-project> for Vertex AI (uses gcloud ADC),")
+    io.print("  or ANTHROPIC_API_KEY=<key> for Claude.")
+  } else {
+    let provider := select_provider()
+    let model    := select_model()
+    match conn.connect_sqlite(":memory:") {
+      Err(e)  => io.print("db error: " + dbe.message(e)),
+      Ok(db)  => match trail_log.open_memory() {
+        Err(m)  => io.print("trail error: " + m),
+        Ok(log) => run_demo(db, log, provider, model),
+      },
+    }
   }
 }
