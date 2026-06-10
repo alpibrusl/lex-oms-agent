@@ -120,8 +120,8 @@ fn run_demo(db_alpha :: conn.ConnDb, db_beta :: conn.ConnDb, log :: trail_log.Lo
   # handle. agent.run dispatches all tool calls through the ConnDb in
   # the context — so alpha_agent can only query db_alpha, period.
   #
-  let alpha_ctx := { db: db_alpha, log: log, max_steps: 2 }
-  let beta_ctx  := { db: db_beta,  log: log, max_steps: 2 }
+  let alpha_ctx := { db: db_alpha, log: log, max_steps: 2, clock: ClockWall }
+  let beta_ctx  := { db: db_beta,  log: log, max_steps: 2, clock: ClockWall }
 
   let __ra := agent.run(alpha_ctx, snapshot_decide)
   let __rb := agent.run(beta_ctx,  snapshot_decide)

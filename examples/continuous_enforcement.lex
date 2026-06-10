@@ -194,7 +194,7 @@ fn print_position(sym :: Str, qty :: Int, price :: Int, limit :: Int) -> [io] Un
 # ---- Concurrent actor handlers ------------------------------------
 
 fn trader_handler(state :: ActorState, _ :: ActorMsg) -> [sql, net, llm, time, crypto, concurrent] (ActorState, Str) {
-  let ctx  := { db: state.db, log: state.log, max_steps: 10 }
+  let ctx  := { db: state.db, log: state.log, max_steps: 10, clock: ClockWall }
   let goal := str.join([
     "You are a momentum equity trader. Your mandate: concentrate the portfolio into its ",
     "strongest performer by share count. ",
@@ -215,7 +215,7 @@ fn trader_handler(state :: ActorState, _ :: ActorMsg) -> [sql, net, llm, time, c
 fn compliance_handler(state :: ActorState, _ :: ActorMsg) -> [sql, net, llm, time, crypto, concurrent] (ActorState, Str) {
   let aapl_sell := 14286
   let msft_sell := 5953
-  let ctx  := { db: state.db, log: state.log, max_steps: 15 }
+  let ctx  := { db: state.db, log: state.log, max_steps: 15, clock: ClockWall }
   let goal := str.join([
     "You are an autonomous compliance officer. ",
     "Policy: MiFID II Article 57 — no single position may exceed $50,000,000 notional. ",
@@ -248,7 +248,7 @@ fn compliance_handler(state :: ActorState, _ :: ActorMsg) -> [sql, net, llm, tim
 
 fn run_demo(db :: conn.ConnDb, log :: trail_log.Log, provider :: prov.Provider, model :: prov.ModelRef) -> [sql, time, crypto, net, llm, io, concurrent] Unit {
   let __init := srv.init_db(db)
-  let base_ctx := { db: db, log: log, max_steps: 10 }
+  let base_ctx := { db: db, log: log, max_steps: 10, clock: ClockWall }
 
   let aapl_px := 175
   let msft_px := 420

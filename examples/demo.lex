@@ -116,7 +116,7 @@ fn print_step(s :: agent.Step) -> [io] Unit {
 
 fn run_demo(db :: conn.ConnDb, log :: trail_log.Log) -> [sql, time, io, crypto] Unit {
   let __init := srv.init_db(db)
-  let ctx := { db: db, log: log, max_steps: 20 }
+  let ctx := { db: db, log: log, max_steps: 20, clock: ClockWall }
 
   let __h1 := print_section("AGENT LOOP  (scripted — swap decide fn for real LLM)")
   let result := agent.run(ctx, scripted_decide)

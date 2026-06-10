@@ -189,7 +189,7 @@ fn result_str(r :: agent.AgentResult) -> Str {
 
 fn run_demo(db :: conn.ConnDb, log :: trail_log.Log, provider :: prov.Provider, model :: prov.ModelRef) -> [sql, time, crypto, net, llm, io] Unit {
   let __init := srv.init_db(db)
-  let base_ctx := { db: db, log: log, max_steps: 10 }
+  let base_ctx := { db: db, log: log, max_steps: 10, clock: ClockWall }
 
   # ── Scripted setup ──────────────────────────────────────────────
   let __h1 := print_section("PHASE 1 — Seed portfolio (scripted)")
@@ -213,7 +213,7 @@ fn run_demo(db :: conn.ConnDb, log :: trail_log.Log, provider :: prov.Provider, 
     "increase it — buy at least 100 shares. Call done once your buy order is accepted by the OMS.",
   ], "")
   let trader_decide := llm_decide.make_decide(provider, model, trader_goal)
-  let trader_ctx    := { db: db, log: log, max_steps: 15 }
+  let trader_ctx    := { db: db, log: log, max_steps: 15, clock: ClockWall }
   let trader_run    := agent.run_with_llm_history(trader_ctx, trader_decide)
   let trader_result := match trader_run { (res, _hist) => res }
   let trader_hist   := match trader_run { (_res, hist) => hist }
@@ -235,7 +235,7 @@ fn run_demo(db :: conn.ConnDb, log :: trail_log.Log, provider :: prov.Provider, 
     "bring it back within limits. Call done when all breaching positions have corrective orders submitted.",
   ], "")
   let monitor_decide := llm_decide.make_decide(provider, model, monitor_goal)
-  let monitor_ctx    := { db: db, log: log, max_steps: 20 }
+  let monitor_ctx    := { db: db, log: log, max_steps: 20, clock: ClockWall }
   let monitor_result := agent.run_with_llm(monitor_ctx, monitor_decide)
   let __mr := io.print("Monitor: " + result_str(monitor_result))
 
