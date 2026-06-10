@@ -85,7 +85,46 @@ fn run_with_llm_history(ctx :: AgentCtx, decide :: (List[Step]) -> [net, llm] (t
   step_loop_llm_history(ctx, decide, [], 0)
 }
 
+# External-process variant (arena runner): decide may spawn the
+# participant's agent process and touch the filesystem for the request
+# handoff. Same audit protocol as every other loop.
+fn run_external(ctx :: AgentCtx, decide :: (List[Step]) -> [io, fs_read, fs_write, proc] tool.Tool) -> [sql, time, crypto, io, fs_read, fs_write, proc] AgentResult {
+  step_loop_ext(ctx, decide, [], 0)
+}
+
 # ---- Internal loop --------------------------------------------------
+
+fn step_loop_ext(ctx :: AgentCtx, decide :: (List[Step]) -> [io, fs_read, fs_write, proc] tool.Tool, history :: List[Step], n :: Int) -> [sql, time, crypto, io, fs_read, fs_write, proc] AgentResult {
+  if n >= ctx.max_steps {
+    let _trail := trail_log.append_at(ctx.log, kinds.budget_exhausted(), None, "{\"steps_taken\":" + int.to_str(n) + "}", clock_ts(ctx.clock, n))
+    StepLimitReached(n)
+  } else {
+    let t := decide(history)
+    match t {
+      AgentDone(reason) => {
+        let _trail := trail_log.append_at(ctx.log, kinds.goal_met(), None, "{\"reason\":\"" + tool.escape_json_str(reason) + "\"}", clock_ts(ctx.clock, n))
+        GoalMet(reason)
+      },
+      _ => {
+        let intent_payload := "{\"step\":" + int.to_str(n) + ",\"tool\":\"" + tool.tool_name(t) + "\",\"call\":" + tool.tool_json(t) + "}"
+        match trail_log.append_at(ctx.log, kinds.decision_intent(), None, intent_payload, clock_ts(ctx.clock, n)) {
+          Err(_) => StepLimitReached(n),
+          Ok(intent_evt) => {
+            let outcome := tool.dispatch(ctx.db, ctx.log, t, clock_ts(ctx.clock, n))
+            let payload := make_payload(n, t, outcome)
+            match trail_log.append_at(ctx.log, kinds.decision_made(), Some(intent_evt.id), payload, clock_ts(ctx.clock, n)) {
+              Err(_) => StepLimitReached(n),
+              Ok(out_evt) => {
+                let entry := { step: n, tool: t, outcome: outcome, trail_id: out_evt.id, call_id: "" }
+                step_loop_ext(ctx, decide, list.concat(history, [entry]), n + 1)
+              },
+            }
+          },
+        }
+      },
+    }
+  }
+}
 
 fn step_loop(ctx :: AgentCtx, decide :: (List[Step]) -> tool.Tool, history :: List[Step], n :: Int) -> [sql, time, crypto] AgentResult {
   if n >= ctx.max_steps {

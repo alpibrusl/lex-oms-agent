@@ -38,6 +38,7 @@ import "../agent" as agent
 import "../tool" as tool
 import "./scenario" as scenario
 import "./trail_file" as tf
+import "./fills" as fills
 
 # ---- Intent payload (mirror of agent loop's enriched payload) --------
 type IntentPayload = { step :: Int, tool :: Str, call :: tool.ToolCall }
@@ -192,6 +193,8 @@ fn verdict_json(verified :: Bool, sc :: scenario.Scenario, replayed :: List[tf.L
     + ",\"events\":" + int.to_str(list.len(replayed))
     + ",\"orders_accepted\":" + int.to_str(accepted)
     + ",\"orders_rejected\":" + int.to_str(rejected)
+    + ",\"fills\":" + int.to_str(fills.fill_count(replayed))
+    + ",\"pnl\":\"" + fills.pnl_str(sc, replayed) + "\""
     + ",\"disqualified\":" + bool_str(dq)
     + ",\"divergence_at\":" + int.to_str(divergence)
     + ",\"result\":\"" + result_str(result) + "\"}"
