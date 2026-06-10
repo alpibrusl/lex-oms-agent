@@ -103,7 +103,7 @@ fn step_loop(ctx :: AgentCtx, decide :: (List[Step]) -> tool.Tool, history :: Li
         match trail_log.append_at(ctx.log, kinds.decision_intent(), None, intent_payload, clock_ts(ctx.clock, n)) {
           Err(_) => StepLimitReached(n),
           Ok(intent_evt) => {
-            let outcome := tool.dispatch(ctx.db, ctx.log, t)
+            let outcome := tool.dispatch(ctx.db, ctx.log, t, clock_ts(ctx.clock, n))
             let payload := make_payload(n, t, outcome)
             match trail_log.append_at(ctx.log, kinds.decision_made(), Some(intent_evt.id), payload, clock_ts(ctx.clock, n)) {
               Err(_) => StepLimitReached(n),
@@ -137,7 +137,7 @@ fn step_loop_llm(ctx :: AgentCtx, decide :: (List[Step]) -> [net, llm] (tool.Too
         match trail_log.append_at(ctx.log, kinds.decision_intent(), None, intent_payload, clock_ts(ctx.clock, n)) {
           Err(_) => StepLimitReached(n),
           Ok(intent_evt) => {
-            let outcome := tool.dispatch(ctx.db, ctx.log, t)
+            let outcome := tool.dispatch(ctx.db, ctx.log, t, clock_ts(ctx.clock, n))
             let payload := make_payload(n, t, outcome)
             match trail_log.append_at(ctx.log, kinds.decision_made(), Some(intent_evt.id), payload, clock_ts(ctx.clock, n)) {
               Err(_) => StepLimitReached(n),
@@ -171,7 +171,7 @@ fn step_loop_llm_history(ctx :: AgentCtx, decide :: (List[Step]) -> [net, llm] (
         match trail_log.append_at(ctx.log, kinds.decision_intent(), None, intent_payload, clock_ts(ctx.clock, n)) {
           Err(_) => (StepLimitReached(n), history),
           Ok(intent_evt) => {
-            let outcome := tool.dispatch(ctx.db, ctx.log, t)
+            let outcome := tool.dispatch(ctx.db, ctx.log, t, clock_ts(ctx.clock, n))
             let payload := make_payload(n, t, outcome)
             match trail_log.append_at(ctx.log, kinds.decision_made(), Some(intent_evt.id), payload, clock_ts(ctx.clock, n)) {
               Err(_) => (StepLimitReached(n), history),

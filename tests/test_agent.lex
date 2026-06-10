@@ -136,13 +136,16 @@ fn intg_audit_has_agent_events(db :: conn.ConnDb, log :: trail_log.Log) -> [sql,
 }
 
 # ---- Sim-clock determinism ------------------------------------------
-# Run the same observe-only script in two fresh (db, log) pairs under
-# ClockSim; the full trail id sequences must be byte-identical. Scope:
-# observe-only because SubmitOrder triggers OMS-side trail writes that
-# still use wall-clock append (lex-oms conversion is the next change).
+# Run the same script — including a SubmitOrder, so OMS-side trade
+# events (order.validated/accepted) are exercised — in two fresh
+# (db, log) pairs under ClockSim. The FULL trail id sequences must be
+# byte-identical: dispatch forwards the step timestamp via sim_ts_ms,
+# so agent events and trade events share deterministic sim-time.
 fn observe_then_done(history :: List[agent.Step]) -> tool.Tool {
   let n := agent.steps_taken(history)
-  if n >= 2 { AgentDone("observed") } else { Observe(Blotter) }
+  if n == 0 { Observe(Blotter) }
+  else { if n == 1 { SubmitOrder({ cl_ord_id: "SIM-001", symbol: "AAPL", side: "buy", quantity: 10 }) }
+  else { AgentDone("submitted deterministically") } }
 }
 
 fn joined_trail_ids() -> [sql, time, crypto, fs_write] Result[Str, Str] {
