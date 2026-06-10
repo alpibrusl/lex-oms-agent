@@ -1,0 +1,8 @@
+{
+  "version": "1",
+  "name": "ep1-baseline",
+  "seed": 42,
+  "episode_start_ms": 1700000000000,
+  "tick_ms": 1000,
+  "max_steps": 25
+}
