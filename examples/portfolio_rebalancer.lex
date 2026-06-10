@@ -131,7 +131,7 @@ fn print_section(title :: Str) -> [io] Unit {
 
 fn run_demo(db :: conn.ConnDb, log :: trail_log.Log, provider :: prov.Provider, model :: prov.ModelRef) -> [sql, time, crypto, net, llm, io] Unit {
   let __init := srv.init_db(db)
-  let seed_ctx := { db: db, log: log, max_steps: 10 }
+  let seed_ctx := { db: db, log: log, max_steps: 10, clock: ClockWall }
 
   let __h1 := print_section("PHASE 1 — Seed skewed portfolio (scripted)")
   let __s   := agent.run(seed_ctx, scripted_seed)
@@ -149,7 +149,7 @@ fn run_demo(db :: conn.ConnDb, log :: trail_log.Log, provider :: prov.Provider, 
     "Call done when all rebalancing orders are accepted by the OMS.",
   ], "")
   let decide  := llm_decide.make_decide(provider, model, goal)
-  let run_ctx := { db: db, log: log, max_steps: 25 }
+  let run_ctx := { db: db, log: log, max_steps: 25, clock: ClockWall }
   let result  := agent.run_with_llm(run_ctx, decide)
 
   let __r := io.print(match result {

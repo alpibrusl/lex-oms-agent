@@ -101,7 +101,7 @@ fn print_section(title :: Str) -> [io] Unit {
 
 fn run_llm_demo(db :: conn.ConnDb, log :: trail_log.Log, provider :: prov.Provider, model :: prov.ModelRef) -> [sql, time, crypto, net, llm, io] Unit {
   let __init := srv.init_db(db)
-  let ctx    := { db: db, log: log, max_steps: 20 }
+  let ctx    := { db: db, log: log, max_steps: 20, clock: ClockWall }
   let goal   := "Submit market buy orders for AAPL (100 shares), MSFT (50 shares), and NVDA (20 shares). Observe positions after submitting all three. Call done once all orders are confirmed accepted."
   let decide := llm_decide.make_decide(provider, model, goal)
 

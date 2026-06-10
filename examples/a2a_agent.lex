@@ -136,7 +136,7 @@ fn make_handler(db :: conn.ConnDb, log :: trail_log.Log, provider :: prov.Provid
     -> (msg.Message) -> [io, time, crypto, random, sql, fs_read, fs_write, net, concurrent, llm, proc] a2a.HandlerOutcome {
   fn (m :: msg.Message) -> [io, time, crypto, random, sql, fs_read, fs_write, net, concurrent, llm, proc] a2a.HandlerOutcome {
     let goal   := first_text(m.parts)
-    let ctx    := { db: db, log: log, max_steps: 20 }
+    let ctx    := { db: db, log: log, max_steps: 20, clock: ClockWall }
     let decide := llm_decide.make_decide(provider, model, goal)
     let result := oms_agent.run_with_llm(ctx, decide)
 

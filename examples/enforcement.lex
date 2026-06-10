@@ -199,7 +199,7 @@ fn print_position(sym :: Str, qty :: Int, price :: Int, limit :: Int) -> [io] Un
 
 fn run_demo(db :: conn.ConnDb, log :: trail_log.Log, provider :: prov.Provider, model :: prov.ModelRef) -> [sql, time, crypto, net, llm, io] Unit {
   let __init := srv.init_db(db)
-  let base_ctx := { db: db, log: log, max_steps: 10 }
+  let base_ctx := { db: db, log: log, max_steps: 10, clock: ClockWall }
 
   let aapl_px := 175
   let msft_px := 420
@@ -252,7 +252,7 @@ fn run_demo(db :: conn.ConnDb, log :: trail_log.Log, provider :: prov.Provider, 
     "Call done as soon as one buy order is accepted by the OMS.",
   ], "")
   let trader_decide := llm_decide.make_decide(provider, model, trader_goal)
-  let trader_ctx    := { db: db, log: log, max_steps: 15 }
+  let trader_ctx    := { db: db, log: log, max_steps: 15, clock: ClockWall }
   let trader_result := agent.run_with_llm(trader_ctx, trader_decide)
   let __tr := io.print("  " + match trader_result {
     GoalMet(r)          => "done: " + r,
@@ -292,7 +292,7 @@ fn run_demo(db :: conn.ConnDb, log :: trail_log.Log, provider :: prov.Provider, 
   ], "")
 
   let monitor_decide := llm_decide.make_decide(provider, model, monitor_goal)
-  let monitor_ctx    := { db: db, log: log, max_steps: 15 }
+  let monitor_ctx    := { db: db, log: log, max_steps: 15, clock: ClockWall }
   let monitor_result := agent.run_with_llm(monitor_ctx, monitor_decide)
 
   # ── Incident report ───────────────────────────────────────────────

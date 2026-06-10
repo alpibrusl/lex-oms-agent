@@ -202,7 +202,7 @@ fn run_demo(db :: conn.ConnDb, log :: trail_log.Log, provider :: prov.Provider, 
 
   # ── Phase 1: seed position ──────────────────────────────────────────
   let __ := print_section("POSITION  —  seed 1,000 NVDA at $875")
-  let seed_ctx := { db: db, log: log, max_steps: 5 }
+  let seed_ctx := { db: db, log: log, max_steps: 5, clock: ClockWall }
   let __       := agent.run(seed_ctx, scripted_seed)
   let __       := simulate_seed_fill(db)
   let __       := io.print("  NVDA:  1,000 shares  ×  $875  =  $875,000 gross exposure")
@@ -267,7 +267,7 @@ fn run_demo(db :: conn.ConnDb, log :: trail_log.Log, provider :: prov.Provider, 
   ], "")
 
   let decide  := llm_decide.make_decide(provider, model, goal)
-  let run_ctx := { db: db, log: log, max_steps: 10 }
+  let run_ctx := { db: db, log: log, max_steps: 10, clock: ClockWall }
   let result  := agent.run_with_llm(run_ctx, decide)
 
   let __ := io.print(match result {
