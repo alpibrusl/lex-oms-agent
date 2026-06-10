@@ -99,7 +99,7 @@ fn step_loop(ctx :: AgentCtx, decide :: (List[Step]) -> tool.Tool, history :: Li
         GoalMet(reason)
       },
       _ => {
-        let intent_payload := "{\"step\":" + int.to_str(n) + ",\"tool\":\"" + tool.tool_name(t) + "\"}"
+        let intent_payload := "{\"step\":" + int.to_str(n) + ",\"tool\":\"" + tool.tool_name(t) + "\",\"call\":" + tool.tool_json(t) + "}"
         match trail_log.append_at(ctx.log, kinds.decision_intent(), None, intent_payload, clock_ts(ctx.clock, n)) {
           Err(_) => StepLimitReached(n),
           Ok(intent_evt) => {
@@ -133,7 +133,7 @@ fn step_loop_llm(ctx :: AgentCtx, decide :: (List[Step]) -> [net, llm] (tool.Too
         GoalMet(reason)
       },
       _ => {
-        let intent_payload := "{\"step\":" + int.to_str(n) + ",\"tool\":\"" + tool.tool_name(t) + "\"}"
+        let intent_payload := "{\"step\":" + int.to_str(n) + ",\"tool\":\"" + tool.tool_name(t) + "\",\"call\":" + tool.tool_json(t) + "}"
         match trail_log.append_at(ctx.log, kinds.decision_intent(), None, intent_payload, clock_ts(ctx.clock, n)) {
           Err(_) => StepLimitReached(n),
           Ok(intent_evt) => {
@@ -167,7 +167,7 @@ fn step_loop_llm_history(ctx :: AgentCtx, decide :: (List[Step]) -> [net, llm] (
         (GoalMet(reason), history)
       },
       _ => {
-        let intent_payload := "{\"step\":" + int.to_str(n) + ",\"tool\":\"" + tool.tool_name(t) + "\"}"
+        let intent_payload := "{\"step\":" + int.to_str(n) + ",\"tool\":\"" + tool.tool_name(t) + "\",\"call\":" + tool.tool_json(t) + "}"
         match trail_log.append_at(ctx.log, kinds.decision_intent(), None, intent_payload, clock_ts(ctx.clock, n)) {
           Err(_) => (StepLimitReached(n), history),
           Ok(intent_evt) => {
