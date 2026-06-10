@@ -1,8 +1,13 @@
 {
-  "version": "1",
+  "version": "2",
   "name": "ep1-baseline",
   "seed": 42,
   "episode_start_ms": 1700000000000,
   "tick_ms": 1000,
-  "max_steps": 25
+  "max_steps": 25,
+  "instruments": [
+    {"symbol": "AAPL", "prices": "174.91,175.20,175.05,176.40,177.10,176.85,178.00"},
+    {"symbol": "MSFT", "prices": "418.51,418.90,419.75,420.40,419.10,421.00,422.30"},
+    {"symbol": "NVDA", "prices": "875.30,880.10,872.45,890.00,885.50,901.20,895.75"}
+  ]
 }
