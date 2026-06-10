@@ -43,12 +43,15 @@ fn tool_name(t :: Tool) -> Str {
 }
 
 # ---- Context helpers (mirrors lex-oms demo pattern) -----------------
-fn post_ctx(body :: Str) -> { method :: Str, path :: Str, query :: Str, body :: Str, path_params :: Map[Str, Str], headers :: Map[Str, Str], state :: Map[Str, Str] } {
-  { method: "POST", path: "/", query: "", body: body, path_params: map.new(), headers: map.from_list([("content-type", "application/json")]), state: map.new() }
+# ts_ms is threaded into ctx.state as sim_ts_ms so lex-oms handlers
+# stamp their trail events with the same step timestamp the agent loop
+# uses — the whole episode trail becomes deterministic under a sim clock.
+fn post_ctx(body :: Str, ts_ms :: Int) -> { method :: Str, path :: Str, query :: Str, body :: Str, path_params :: Map[Str, Str], headers :: Map[Str, Str], state :: Map[Str, Str] } {
+  { method: "POST", path: "/", query: "", body: body, path_params: map.new(), headers: map.from_list([("content-type", "application/json")]), state: map.from_list([("sim_ts_ms", int.to_str(ts_ms))]) }
 }
 
-fn get_ctx() -> { method :: Str, path :: Str, query :: Str, body :: Str, path_params :: Map[Str, Str], headers :: Map[Str, Str], state :: Map[Str, Str] } {
-  post_ctx("")
+fn get_ctx(ts_ms :: Int) -> { method :: Str, path :: Str, query :: Str, body :: Str, path_params :: Map[Str, Str], headers :: Map[Str, Str], state :: Map[Str, Str] } {
+  post_ctx("", ts_ms)
 }
 
 # ---- JSON helpers ---------------------------------------------------
@@ -69,35 +72,38 @@ fn cancel_json(p :: CancelParams) -> Str {
 }
 
 # ---- Dispatch -------------------------------------------------------
-fn dispatch(db :: conn.ConnDb, log :: trail_log.Log, t :: Tool) -> [sql, time] ToolOutcome {
+# ts_ms: the step timestamp from the agent loop's clock (sim-time under
+# ClockSim, wall-clock under ClockWall) — forwarded to OMS handlers via
+# the sim_ts_ms state entry so their trail events share it.
+fn dispatch(db :: conn.ConnDb, log :: trail_log.Log, t :: Tool, ts_ms :: Int) -> [sql, time] ToolOutcome {
   match t {
     AgentDone(reason) =>
       { ok: true, status: 0, body: "{\"done\":\"" + reason + "\"}" },
     Observe(target) =>
-      dispatch_observe(db, log, target),
+      dispatch_observe(db, log, target, ts_ms),
     SubmitOrder(p) =>
-      dispatch_submit(db, log, p),
+      dispatch_submit(db, log, p, ts_ms),
     CancelOrder(p) =>
-      dispatch_cancel(db, log, p),
+      dispatch_cancel(db, log, p, ts_ms),
   }
 }
 
-fn dispatch_observe(db :: conn.ConnDb, log :: trail_log.Log, target :: ObserveTarget) -> [sql, time] ToolOutcome {
+fn dispatch_observe(db :: conn.ConnDb, log :: trail_log.Log, target :: ObserveTarget, ts_ms :: Int) -> [sql, time] ToolOutcome {
   let res := match target {
-    Blotter   => srv.get_blotter(db, get_ctx()),
-    Positions => srv.get_positions(db, get_ctx()),
-    Risk      => srv.get_risk(db, get_ctx()),
-    Audit     => srv.get_audit(log, get_ctx()),
+    Blotter   => srv.get_blotter(db, get_ctx(ts_ms)),
+    Positions => srv.get_positions(db, get_ctx(ts_ms)),
+    Risk      => srv.get_risk(db, get_ctx(ts_ms)),
+    Audit     => srv.get_audit(log, get_ctx(ts_ms)),
   }
   { ok: res.status == 200, status: res.status, body: res.body }
 }
 
-fn dispatch_submit(db :: conn.ConnDb, log :: trail_log.Log, p :: OrderParams) -> [sql, time] ToolOutcome {
-  let res := srv.post_orders(db, log, post_ctx(order_json(p)))
+fn dispatch_submit(db :: conn.ConnDb, log :: trail_log.Log, p :: OrderParams, ts_ms :: Int) -> [sql, time] ToolOutcome {
+  let res := srv.post_orders(db, log, post_ctx(order_json(p), ts_ms))
   { ok: res.status == 201, status: res.status, body: res.body }
 }
 
-fn dispatch_cancel(db :: conn.ConnDb, log :: trail_log.Log, p :: CancelParams) -> [sql, time] ToolOutcome {
-  let res := srv.post_cancel(db, log, post_ctx(cancel_json(p)))
+fn dispatch_cancel(db :: conn.ConnDb, log :: trail_log.Log, p :: CancelParams, ts_ms :: Int) -> [sql, time] ToolOutcome {
+  let res := srv.post_cancel(db, log, post_ctx(cancel_json(p), ts_ms))
   { ok: res.status == 200, status: res.status, body: res.body }
 }
