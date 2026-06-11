@@ -15,3 +15,15 @@ lex-web    = { git = "https://github.com/alpibrusl/lex-web" }
 lex-money  = { git = "https://github.com/alpibrusl/lex-money" }
 lex-risk   = { git = "https://github.com/alpibrusl/lex-risk" }
 lex-positions = { git = "https://github.com/alpibrusl/lex-positions" }
+
+# Transitive deps of the above, declared explicitly because `lex pkg install`
+# is non-recursive and the package cache is a flat sibling layout (packages
+# import each other as ../<name>). Without these, a build-time `lex check`
+# fails resolving e.g. lex-web -> ../lex-log. (Drop once `lex pkg install`
+# resolves transitively — alpibrusl/lex-lang.)
+lex-crypto     = { git = "https://github.com/alpibrusl/lex-crypto" }
+lex-fix        = { git = "https://github.com/alpibrusl/lex-fix" }
+lex-jobs       = { git = "https://github.com/alpibrusl/lex-jobs" }
+lex-log        = { git = "https://github.com/alpibrusl/lex-log" }
+lex-marketdata = { git = "https://github.com/alpibrusl/lex-marketdata" }
+lex-trade      = { git = "https://github.com/alpibrusl/lex-trade" }
