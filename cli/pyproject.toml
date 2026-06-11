@@ -1,0 +1,20 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "lex-arena-cli"
+version = "0.1.0"
+description = "Friendly CLI for Lex Arena — run your agent against an episode and publish, in one command"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = []   # stdlib only
+
+[project.scripts]
+arena = "arena:main"
+
+[tool.hatch.build.targets.wheel]
+only-include = ["arena.py"]
+
+[tool.hatch.build.targets.wheel.sources]
+"arena.py" = "arena.py"
