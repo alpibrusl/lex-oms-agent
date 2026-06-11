@@ -15,3 +15,4 @@ lex-web    = { git = "https://github.com/alpibrusl/lex-web" }
 lex-money  = { git = "https://github.com/alpibrusl/lex-money" }
 lex-risk   = { git = "https://github.com/alpibrusl/lex-risk" }
 lex-positions = { git = "https://github.com/alpibrusl/lex-positions" }
+lex-cli    = { git = "https://github.com/alpibrusl/lex-cli" }

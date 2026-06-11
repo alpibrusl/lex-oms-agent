@@ -1,0 +1,67 @@
+#!/usr/bin/env bash
+# arena — friendly launcher for the Lex-native arena CLI.
+#
+# Lex's execution model is `lex run <file> <fn> <args>`, so this thin
+# wrapper maps `arena run -e ep1 -a "python3 agent.py"` onto the
+# corresponding function call in cli/arena.lex. All logic lives in Lex;
+# this only shuffles flags into positional, JSON-quoted args.
+#
+#   arena episodes
+#   arena run     -e ep1-baseline -a "python3 agent.py" [-o trail.jsonl]
+#   arena verify  -e ep1-baseline trail.jsonl
+#   arena login   [--api URL] --token <token>
+#   arena submit  -e ep1-baseline trail.jsonl [--as me] [--division open] [--model gpt-4o]
+#   arena publish -e ep1-baseline -a "python3 agent.py" [--as me] [--division open] [--model gpt-4o]
+#
+# ARENA_HOME points at the lex-oms-agent checkout (defaults to this
+# script's repo). Requires `lex` on PATH.
+set -euo pipefail
+
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ARENA_HOME="${ARENA_HOME:-$HERE}"
+LEX="${ARENA_LEX_BIN:-lex}"
+EFFECTS="concurrent,crypto,env,fs_read,fs_write,io,llm,net,proc,random,sql,time"
+ENTRY="$ARENA_HOME/cli/arena.lex"
+
+# JSON-quote a string arg for the lex runtime (which parses argv as JSON).
+jq_str() { printf '"%s"' "${1//\"/\\\"}"; }
+
+run_fn() {
+  local fn="$1"; shift
+  local quoted=()
+  for a in "$@"; do quoted+=("$(jq_str "$a")"); done
+  exec "$LEX" run --allow-effects "$EFFECTS" "$ENTRY" "$fn" ${quoted[@]+"${quoted[@]}"}
+}
+
+cmd="${1:-help}"; shift || true
+
+# Defaults
+EP=""; AGENT=""; OUT=""; NAME=""; DIV="open"; MODEL=""; API=""; TOKEN=""; TRAIL=""
+
+# Parse flags + a single trailing positional (the trail file, for verify/submit).
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -e|--episode) EP="$2"; shift 2;;
+    -a|--agent)   AGENT="$2"; shift 2;;
+    -o|--out)     OUT="$2"; shift 2;;
+    --as)         NAME="$2"; shift 2;;
+    --division)   DIV="$2"; shift 2;;
+    --model)      MODEL="$2"; shift 2;;
+    --api)        API="$2"; shift 2;;
+    --token)      TOKEN="$2"; shift 2;;
+    -*)           echo "unknown flag: $1" >&2; exit 2;;
+    *)            TRAIL="$1"; shift;;
+  esac
+done
+
+case "$cmd" in
+  episodes) run_fn episodes ;;
+  run)      run_fn run_cmd "$EP" "$AGENT" "${OUT:-$EP-trail.jsonl}" ;;
+  verify)   run_fn verify_cmd "$EP" "$TRAIL" ;;
+  login)    run_fn login "$API" "$TOKEN" ;;
+  submit)   run_fn submit "$EP" "$TRAIL" "$NAME" "$DIV" "$MODEL" ;;
+  publish)  run_fn publish "$EP" "$AGENT" "$NAME" "$DIV" "$MODEL" ;;
+  help|--help|-h)
+    sed -n '2,18p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' ;;
+  *) echo "unknown command: $cmd (try: arena help)" >&2; exit 2 ;;
+esac
