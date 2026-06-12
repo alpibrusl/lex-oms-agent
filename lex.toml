@@ -15,6 +15,7 @@ lex-web    = { git = "https://github.com/alpibrusl/lex-web" }
 lex-money  = { git = "https://github.com/alpibrusl/lex-money" }
 lex-risk   = { git = "https://github.com/alpibrusl/lex-risk" }
 lex-positions = { git = "https://github.com/alpibrusl/lex-positions" }
+lex-cli    = { git = "https://github.com/alpibrusl/lex-cli" }
 
 # Transitive deps of the above, declared explicitly because `lex pkg install`
 # is non-recursive and the package cache is a flat sibling layout (packages
