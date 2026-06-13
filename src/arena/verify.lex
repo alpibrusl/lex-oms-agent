@@ -122,6 +122,8 @@ fn run_replay(sc :: scenario.Scenario, decisions :: List[tool.Tool], done_reason
     Err(_) => Err("replay: db open failed"),
     Ok(db) => match srv.init_db(db) {
       Err(e) => Err("replay: init_db failed: " + e),
+      Ok(_) => match scenario.seed_marks(db, sc) {
+      Err(e) => Err("replay: seed_marks failed: " + e),
       Ok(_) => match trail_log.open_memory() {
         Err(e) => Err("replay: log open failed: " + e),
         Ok(log) => {
@@ -132,6 +134,7 @@ fn run_replay(sc :: scenario.Scenario, decisions :: List[tool.Tool], done_reason
             Ok(lines) => Ok({ lines: lines, result: result }),
           }
         },
+      },
       },
     },
   }

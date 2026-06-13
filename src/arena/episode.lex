@@ -38,6 +38,8 @@ fn run_episode(sc :: scenario.Scenario, decide :: (List[agent.Step]) -> tool.Too
     Err(_) => Err("episode: db open failed"),
     Ok(db) => match srv.init_db(db) {
       Err(e) => Err("episode: init_db failed: " + e),
+      Ok(_) => match scenario.seed_marks(db, sc) {
+      Err(e) => Err("episode: seed_marks failed: " + e),
       Ok(_) => match trail_log.open_memory() {
         Err(e) => Err("episode: log open failed: " + e),
         Ok(log) => {
@@ -57,6 +59,7 @@ fn run_episode(sc :: scenario.Scenario, decide :: (List[agent.Step]) -> tool.Too
             },
           }
         },
+      },
       },
     },
   }

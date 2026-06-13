@@ -39,6 +39,9 @@ import "std.crypto" as crypto
 
 import "lex-money/src/decimal" as d
 import "lex-positions/src/position" as pos
+import "lex-orm/src/connection" as conn
+import "lex-orm/src/error" as dbe
+import "lex-oms/src/marks" as marks
 
 import "../agent" as agent
 
@@ -111,4 +114,38 @@ fn price_at(sc :: Scenario, symbol :: Str, n :: Int) -> Option[d.Decimal] {
 fn final_price(sc :: Scenario, symbol :: Str) -> Option[d.Decimal] {
   let xs := price_list(sc, symbol)
   price_at(sc, symbol, list.len(xs))
+}
+
+# The sim timestamp the agent loop stamps for step n (ClockSim formula).
+# Marks are keyed by this so the OMS — which reads sim_ts_ms from ctx.state
+# — resolves the same scripted price the fill uses at that step.
+fn step_ts(sc :: Scenario, n :: Int) -> Int {
+  sc.episode_start_ms + n * sc.tick_ms
+}
+
+# Seed the OMS marks table with every (symbol, step) scripted price, so the
+# pre-trade margin and position-notional gates evaluate against the real
+# price an order fills at. Without this the OMS falls back to a static mock
+# that doesn't know most symbols → a $0 mark → the gates never fire. Called
+# once after init_db, before the agent loop; replay seeds identically, so
+# trails stay deterministic.
+fn seed_marks(db :: conn.ConnDb, sc :: Scenario) -> [sql] Result[Unit, Str] {
+  let steps := list.range(0, sc.max_steps + 1)
+  list.fold(sc.instruments, Ok(()), fn (acc :: Result[Unit, Str], inst :: Instrument) -> [sql] Result[Unit, Str] {
+    match acc {
+      Err(e) => Err(e),
+      Ok(_) => list.fold(steps, Ok(()), fn (a2 :: Result[Unit, Str], n :: Int) -> [sql] Result[Unit, Str] {
+        match a2 {
+          Err(e) => Err(e),
+          Ok(_) => match price_at(sc, inst.symbol, n) {
+            None => Ok(()),
+            Some(p) => match marks.set(db, inst.symbol, step_ts(sc, n), pos.decimal_to_str(p)) {
+              Err(e) => Err(dbe.message(e)),
+              Ok(_) => Ok(()),
+            },
+          },
+        }
+      }),
+    }
+  })
 }
