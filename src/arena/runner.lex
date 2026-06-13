@@ -120,6 +120,11 @@ fn run_agent(scenario_path :: Str, agent_cmd :: Str, out_path :: Str) -> [sql, t
             let __p := io.print("{\"error\":\"init_db failed: " + e + "\"}")
             1
           },
+          Ok(_) => match scenario.seed_marks(db, sc) {
+          Err(e) => {
+            let __p := io.print("{\"error\":\"seed_marks failed: " + e + "\"}")
+            1
+          },
           Ok(_) => match trail_log.open_memory() {
             Err(e) => {
               let __p := io.print("{\"error\":\"log open failed: " + e + "\"}")
@@ -165,6 +170,7 @@ fn run_agent(scenario_path :: Str, agent_cmd :: Str, out_path :: Str) -> [sql, t
                 },
               }
             },
+          },
           },
         },
       },

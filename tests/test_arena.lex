@@ -120,6 +120,37 @@ fn t_pnl_from_trail() -> [sql, time, crypto, fs_write] Result[Unit, Str] {
   }
 }
 
+# A position-notional breach: 600,000 AAPL @ ~100 ≈ $60M > the $50M cap,
+# but under the 1M qty cap. With live marks seeded from the scenario the
+# OMS rejects it (and logs trade.order.rejected); it must not fill.
+fn breach_strategy(history :: List[agent.Step]) -> tool.Tool {
+  let n := agent.steps_taken(history)
+  if n == 0 { Observe(Blotter) }
+  else { if n == 1 { SubmitOrder({ cl_ord_id: "BIG-1", symbol: "AAPL", side: "buy", quantity: 600000 }) }
+  else { AgentDone("notional breach") } }
+}
+
+fn count_kind(lines :: List[tf.Line], k :: Str) -> Int {
+  list.fold(lines, 0, fn (acc :: Int, l :: tf.Line) -> Int {
+    if l.kind == k { acc + 1 } else { acc }
+  })
+}
+
+fn t_notional_breach_rejected() -> [sql, time, crypto, fs_write] Result[Unit, Str] {
+  let sc := test_scenario()
+  match episode.run_episode(sc, breach_strategy) {
+    Err(e) => Err("episode failed: " + e),
+    Ok(out) => {
+      let rejected := count_kind(out.lines, "trade.order.rejected")
+      if rejected >= 1 {
+        check("notional breach must not fill", fills.fill_count(out.lines) == 0)
+      } else {
+        Err("expected a trade.order.rejected event for the notional breach, got 0")
+      }
+    },
+  }
+}
+
 fn count_failures(results :: List[Result[Unit, Str]]) -> Int {
   list.fold(results, 0, fn (acc :: Int, v :: Result[Unit, Str]) -> Int {
     match v {
@@ -130,5 +161,5 @@ fn count_failures(results :: List[Result[Unit, Str]]) -> Int {
 }
 
 fn arena_main() -> [sql, time, crypto, fs_write] Int {
-  count_failures([t_verified_roundtrip(), t_tampered_rejected(), t_scenario_id_content_addressed(), t_pnl_from_trail()])
+  count_failures([t_verified_roundtrip(), t_tampered_rejected(), t_scenario_id_content_addressed(), t_pnl_from_trail(), t_notional_breach_rejected()])
 }
