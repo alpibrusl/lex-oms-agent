@@ -106,8 +106,13 @@ fn t_pnl_from_trail() -> [sql, time, crypto, fs_write] Result[Unit, Str] {
     Err(e) => Err("episode failed: " + e),
     Ok(out) => {
       let pnl := fills.pnl_str(sc, out.lines)
+      let notional := fills.notional_str(sc, out.lines)
       if pnl == "150.00" {
-        check("fill count", fills.fill_count(out.lines) == 1)
+        if notional == "10150.00" {
+          check("fill count", fills.fill_count(out.lines) == 1)
+        } else {
+          Err("expected notional 10150.00, got " + notional)
+        }
       } else {
         Err("expected pnl 150.00, got " + pnl)
       }
