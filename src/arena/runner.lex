@@ -157,6 +157,7 @@ fn run_agent(scenario_path :: Str, agent_cmd :: Str, out_path :: Str) -> [sql, t
                         + ",\"events\":" + int.to_str(list.len(lines))
                         + ",\"fills\":" + int.to_str(fills.fill_count(lines))
                         + ",\"pnl\":\"" + fills.pnl_str(sc, lines) + "\""
+                        + ",\"notional\":\"" + fills.notional_str(sc, lines) + "\""
                         + ",\"result\":\"" + esc(result_s) + "\"}")
                       0
                     },

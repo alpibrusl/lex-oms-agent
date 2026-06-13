@@ -103,6 +103,32 @@ fn pnl_str(sc :: scenario.Scenario, lines :: List[tf.Line]) -> Str {
   pos.decimal_to_str(episode_pnl(sc, lines))
 }
 
+# ---- Notional ----------------------------------------------------------
+# Gross notional deployed by one fill: qty × fill price (always positive;
+# a sell still consumes the same buying power). Orders in symbols without
+# a price script contribute zero, exactly like P&L.
+
+fn fill_notional(sc :: scenario.Scenario, f :: Fill) -> d.Decimal {
+  match scenario.price_at(sc, f.symbol, f.step) {
+    None => d.zero(),
+    Some(fill_px) => d.mul(d.from_int(f.quantity), fill_px),
+  }
+}
+
+# Total gross notional across all accepted fills. Pure over (trail, scenario).
+# Surfaced alongside pnl so the leaderboard can rank by return on deployed
+# capital (pnl / notional) instead of raw pnl — making the score reflect
+# skill rather than position size.
+fn episode_notional(sc :: scenario.Scenario, lines :: List[tf.Line]) -> d.Decimal {
+  list.fold(accepted_fills(lines), d.zero(), fn (acc :: d.Decimal, f :: Fill) -> d.Decimal {
+    d.add(acc, fill_notional(sc, f))
+  })
+}
+
+fn notional_str(sc :: scenario.Scenario, lines :: List[tf.Line]) -> Str {
+  pos.decimal_to_str(episode_notional(sc, lines))
+}
+
 fn fill_count(lines :: List[tf.Line]) -> Int {
   list.len(accepted_fills(lines))
 }
