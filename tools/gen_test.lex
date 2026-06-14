@@ -26,20 +26,37 @@ fn t_extract() -> Result[Unit, Str] {
   }
 }
 
-# norm_price gives integer-valued tokens a decimal point so parse_price accepts them.
-fn t_norm_price() -> Result[Unit, Str] {
-  if gen.norm_price("64334") == "64334.0" {
-    check("keeps existing point", gen.norm_price("64242.28") == "64242.28")
-  } else {
-    Err("norm_price(64334) = " + gen.norm_price("64334"))
-  }
+# round2 caps precision to 2dp (and gives integers a decimal point).
+fn t_round2() -> Result[Unit, Str] {
+  if gen.round2("298.8699951171875") == "298.87" {
+    check("integer token", gen.round2("64334") == "64334.00")
+  } else { Err("round2(298.86999…) = " + gen.round2("298.8699951171875")) }
+}
+
+# between extracts the text inside markers (Yahoo close/timestamp arrays).
+fn t_between() -> Result[Unit, Str] {
+  let body := "{\"x\":1,\"close\":[1.2,3.4,5.6],\"adjclose\":[9.9]}"
+  let got := gen.between(body, "\"close\":[", "]")
+  check("between", got == "1.2,3.4,5.6")
+}
+
+# fill_nulls carries the last good value forward over null/empty tokens.
+fn t_fill_nulls() -> Result[Unit, Str] {
+  let out := gen.fill_nulls(["1.0", "null", "2.0", "null"])
+  check("fill_nulls", gen_join(out) == "1.0,1.0,2.0,2.0")
+}
+
+fn gen_join(xs :: List[Str]) -> Str {
+  list.fold(xs, "", fn (acc :: Str, x :: Str) -> Str {
+    if acc == "" { x } else { acc + "," + x }
+  })
 }
 
 fn run_all() -> [io] Int {
-  let results := [t_extract(), t_norm_price()]
+  let results := [t_extract(), t_round2(), t_between(), t_fill_nulls()]
   let fails := list.fold(results, 0, fn (acc :: Int, r :: Result[Unit, Str]) -> [io] Int {
     match r { Ok(_) => acc, Err(e) => { let __ := io.print("FAIL: " + e) acc + 1 } }
   })
-  let __ := io.print("gen tests: " + int.to_str(2 - fails) + "/2 passed")
+  let __ := io.print("gen tests: " + int.to_str(4 - fails) + "/4 passed")
   fails
 }
