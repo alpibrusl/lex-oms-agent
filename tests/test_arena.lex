@@ -12,6 +12,9 @@ import "std.str" as str
 import "std.int" as int
 import "std.list" as list
 
+import "lex-money/src/decimal" as d
+import "lex-positions/src/position" as pos
+
 import "../src/agent" as agent
 import "../src/tool" as tool
 import "../src/arena/scenario" as scenario
@@ -25,7 +28,7 @@ fn check(name :: Str, cond :: Bool) -> Result[Unit, Str] {
 }
 
 fn test_scenario() -> scenario.Scenario {
-  { version: "2", name: "test-ep", seed: 7, episode_start_ms: 1700000000000, tick_ms: 1000, max_steps: 20, instruments: [{ symbol: "AAPL", prices: "100.00,101.50,103.00" }] }
+  { version: "2", name: "test-ep", seed: 7, episode_start_ms: 1700000000000, tick_ms: 1000, max_steps: 20, instruments: [{ symbol: "AAPL", prices: "100.00,101.50,103.00" }], cost: { spread_bps: 0, impact_bps: 0, lot: 1 } }
 }
 
 fn strategy(history :: List[agent.Step]) -> tool.Tool {
@@ -94,7 +97,7 @@ fn t_tampered_rejected() -> [sql, time, crypto, fs_write] Result[Unit, Str] {
 # Scenario id is content-addressed: any field change changes the id.
 fn t_scenario_id_content_addressed() -> Result[Unit, Str] {
   let a := test_scenario()
-  let b := { version: "2", name: "test-ep", seed: 8, episode_start_ms: 1700000000000, tick_ms: 1000, max_steps: 20, instruments: [{ symbol: "AAPL", prices: "100.00,101.50,103.00" }] }
+  let b := { version: "2", name: "test-ep", seed: 8, episode_start_ms: 1700000000000, tick_ms: 1000, max_steps: 20, instruments: [{ symbol: "AAPL", prices: "100.00,101.50,103.00" }], cost: { spread_bps: 0, impact_bps: 0, lot: 1 } }
   check("seed participates in scenario id", scenario.scenario_id(a) != scenario.scenario_id(b))
 }
 
@@ -151,6 +154,38 @@ fn t_notional_breach_rejected() -> [sql, time, crypto, fs_write] Result[Unit, St
   }
 }
 
+# ---- cost model (spread + slippage) ---------------------------------
+
+fn cost_scenario(spread :: Int, impact :: Int, lot :: Int) -> scenario.Scenario {
+  { version: "2", name: "cost-ep", seed: 7, episode_start_ms: 1700000000000, tick_ms: 1000, max_steps: 20, instruments: [{ symbol: "AAPL", prices: "100.00,101.50,103.00" }], cost: { spread_bps: spread, impact_bps: impact, lot: lot } }
+}
+
+fn buy_fill(q :: Int) -> fills.Fill {
+  { step: 1, symbol: "AAPL", side: "buy", quantity: q }
+}
+
+# A 100bps spread makes a buy fill at 101.50*1.01 = 102.515; final mark 103.00
+# → pnl = 100*(103-102.515) = 48.50 (vs 150.00 frictionless).
+fn t_spread_cost() -> Result[Unit, Str] {
+  let pnl := fills.fill_pnl(cost_scenario(100, 0, 1), buy_fill(100))
+  # value 48.50 (compare by value; the decimal scale may carry extra zeros)
+  if d.compare(pnl, d.decimal(485, -1)) == 0 {
+    check("spread below frictionless", d.lt(pnl, fills.fill_pnl(cost_scenario(0, 0, 1), buy_fill(100))))
+  } else {
+    Err("expected spread pnl 48.50, got " + pos.decimal_to_str(pnl))
+  }
+}
+
+# Slippage is convex in size: a 1000-share buy's per-share P&L is worse than a
+# 100-share buy's. impact 10bps/100sh → small slips 10bps, big slips 100bps.
+fn t_slippage_convex() -> Result[Unit, Str] {
+  let sc := cost_scenario(0, 10, 100)
+  let small := fills.fill_pnl(sc, buy_fill(100))
+  let big := fills.fill_pnl(sc, buy_fill(1000))
+  # per-share(small) > per-share(big)  <=>  small*10 > big
+  check("larger order fills worse per share", d.gt(d.mul(small, d.from_int(10)), big))
+}
+
 fn count_failures(results :: List[Result[Unit, Str]]) -> Int {
   list.fold(results, 0, fn (acc :: Int, v :: Result[Unit, Str]) -> Int {
     match v {
@@ -161,5 +196,5 @@ fn count_failures(results :: List[Result[Unit, Str]]) -> Int {
 }
 
 fn arena_main() -> [sql, time, crypto, fs_write] Int {
-  count_failures([t_verified_roundtrip(), t_tampered_rejected(), t_scenario_id_content_addressed(), t_pnl_from_trail(), t_notional_breach_rejected()])
+  count_failures([t_verified_roundtrip(), t_tampered_rejected(), t_scenario_id_content_addressed(), t_pnl_from_trail(), t_notional_breach_rejected(), t_spread_cost(), t_slippage_convex()])
 }

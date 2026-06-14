@@ -79,12 +79,31 @@ fn accepted_fills(lines :: List[tf.Line]) -> List[Fill] {
 
 # ---- P&L ---------------------------------------------------------------
 
+# The price an order actually fills at, given the scenario's cost model.
+# Starting from the scripted mid: buys cross the half-spread up and sells down,
+# plus linear market impact — impact_bps of slippage per `lot` shares of size,
+# so a large order's average fill degrades convexly with size. With a zero cost
+# model this returns the mid unchanged (the original frictionless behavior).
+fn effective_fill(sc :: scenario.Scenario, f :: Fill, mid :: d.Decimal) -> d.Decimal {
+  let lot := if sc.cost.lot > 0 { sc.cost.lot } else { 1 }
+  let total_bps := sc.cost.spread_bps + sc.cost.impact_bps * f.quantity / lot
+  if total_bps == 0 {
+    # Frictionless: return the mid untouched (same value AND scale), so every
+    # pre-cost scenario scores byte-for-byte as before.
+    mid
+  } else {
+    let adj := d.mul(mid, d.decimal(total_bps, -4))
+    if f.side == "sell" { d.sub(mid, adj) } else { d.add(mid, adj) }
+  }
+}
+
 fn fill_pnl(sc :: scenario.Scenario, f :: Fill) -> d.Decimal {
   match scenario.price_at(sc, f.symbol, f.step) {
     None => d.zero(),
-    Some(fill_px) => match scenario.final_price(sc, f.symbol) {
+    Some(mid) => match scenario.final_price(sc, f.symbol) {
       None => d.zero(),
       Some(mark) => {
+        let fill_px := effective_fill(sc, f, mid)
         let edge := d.sub(mark, fill_px)
         let signed := if f.side == "sell" { d.negate(edge) } else { edge }
         d.mul(d.from_int(f.quantity), signed)
