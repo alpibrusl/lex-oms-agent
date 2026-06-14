@@ -28,7 +28,7 @@ fn check(name :: Str, cond :: Bool) -> Result[Unit, Str] {
 }
 
 fn test_scenario() -> scenario.Scenario {
-  { version: "2", name: "test-ep", seed: 7, episode_start_ms: 1700000000000, tick_ms: 1000, max_steps: 20, instruments: [{ symbol: "AAPL", prices: "100.00,101.50,103.00" }], cost: { spread_bps: 0, impact_bps: 0, lot: 1 } }
+  { version: "2", name: "test-ep", seed: 7, episode_start_ms: 1700000000000, tick_ms: 1000, max_steps: 20, instruments: [{ symbol: "AAPL", prices: "100.00,101.50,103.00" }], cost: { spread_bps: 0, impact_bps: 0, lot: 1, fee_bps: 0, fee_per_unit_cents: 0 } }
 }
 
 fn strategy(history :: List[agent.Step]) -> tool.Tool {
@@ -97,7 +97,7 @@ fn t_tampered_rejected() -> [sql, time, crypto, fs_write] Result[Unit, Str] {
 # Scenario id is content-addressed: any field change changes the id.
 fn t_scenario_id_content_addressed() -> Result[Unit, Str] {
   let a := test_scenario()
-  let b := { version: "2", name: "test-ep", seed: 8, episode_start_ms: 1700000000000, tick_ms: 1000, max_steps: 20, instruments: [{ symbol: "AAPL", prices: "100.00,101.50,103.00" }], cost: { spread_bps: 0, impact_bps: 0, lot: 1 } }
+  let b := { version: "2", name: "test-ep", seed: 8, episode_start_ms: 1700000000000, tick_ms: 1000, max_steps: 20, instruments: [{ symbol: "AAPL", prices: "100.00,101.50,103.00" }], cost: { spread_bps: 0, impact_bps: 0, lot: 1, fee_bps: 0, fee_per_unit_cents: 0 } }
   check("seed participates in scenario id", scenario.scenario_id(a) != scenario.scenario_id(b))
 }
 
@@ -157,7 +157,7 @@ fn t_notional_breach_rejected() -> [sql, time, crypto, fs_write] Result[Unit, St
 # ---- cost model (spread + slippage) ---------------------------------
 
 fn cost_scenario(spread :: Int, impact :: Int, lot :: Int) -> scenario.Scenario {
-  { version: "2", name: "cost-ep", seed: 7, episode_start_ms: 1700000000000, tick_ms: 1000, max_steps: 20, instruments: [{ symbol: "AAPL", prices: "100.00,101.50,103.00" }], cost: { spread_bps: spread, impact_bps: impact, lot: lot } }
+  { version: "2", name: "cost-ep", seed: 7, episode_start_ms: 1700000000000, tick_ms: 1000, max_steps: 20, instruments: [{ symbol: "AAPL", prices: "100.00,101.50,103.00" }], cost: { spread_bps: spread, impact_bps: impact, lot: lot, fee_bps: 0, fee_per_unit_cents: 0 } }
 }
 
 fn buy_fill(q :: Int) -> fills.Fill {
@@ -186,6 +186,24 @@ fn t_slippage_convex() -> Result[Unit, Str] {
   check("larger order fills worse per share", d.gt(d.mul(small, d.from_int(10)), big))
 }
 
+# ---- commissions ----------------------------------------------------
+
+fn fee_scenario(fee_bps :: Int, fee_unit :: Int) -> scenario.Scenario {
+  { version: "2", name: "fee-ep", seed: 7, episode_start_ms: 1700000000000, tick_ms: 1000, max_steps: 20, instruments: [{ symbol: "AAPL", prices: "100.00,101.50,103.00" }], cost: { spread_bps: 0, impact_bps: 0, lot: 1, fee_bps: fee_bps, fee_per_unit_cents: fee_unit } }
+}
+
+# Buy 100 AAPL @ 101.50, final 103.00 → gross pnl 150.00. With 10bps + 5c/sh:
+# fee = 10150*0.0010 + 100*0.05 = 10.15 + 5.00 = 15.15 → net pnl 134.85.
+fn t_fee_cost() -> Result[Unit, Str] {
+  let sc := fee_scenario(10, 5)
+  let f := buy_fill(100)
+  if d.compare(fills.fill_fee(sc, f), d.decimal(1515, -2)) == 0 {
+    check("net pnl = gross - fees", d.compare(fills.fill_pnl(sc, f), d.decimal(13485, -2)) == 0)
+  } else {
+    Err("expected fee 15.15, got " + pos.decimal_to_str(fills.fill_fee(sc, f)))
+  }
+}
+
 fn count_failures(results :: List[Result[Unit, Str]]) -> Int {
   list.fold(results, 0, fn (acc :: Int, v :: Result[Unit, Str]) -> Int {
     match v {
@@ -196,5 +214,5 @@ fn count_failures(results :: List[Result[Unit, Str]]) -> Int {
 }
 
 fn arena_main() -> [sql, time, crypto, fs_write] Int {
-  count_failures([t_verified_roundtrip(), t_tampered_rejected(), t_scenario_id_content_addressed(), t_pnl_from_trail(), t_notional_breach_rejected(), t_spread_cost(), t_slippage_convex()])
+  count_failures([t_verified_roundtrip(), t_tampered_rejected(), t_scenario_id_content_addressed(), t_pnl_from_trail(), t_notional_breach_rejected(), t_spread_cost(), t_slippage_convex(), t_fee_cost()])
 }

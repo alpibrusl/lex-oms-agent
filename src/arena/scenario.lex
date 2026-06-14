@@ -49,8 +49,10 @@ type Instrument = { symbol :: Str, prices :: Str }
 
 # Execution cost model (see fills.lex). spread_bps is the per-side half-spread;
 # impact_bps is the slippage added per `lot` shares of order size (linear market
-# impact). All zero = frictionless fills (the original behavior).
-type CostModel = { spread_bps :: Int, impact_bps :: Int, lot :: Int }
+# impact); fee_bps is a commission as basis points of traded notional and
+# fee_per_unit_cents a per-share/contract commission. All zero = frictionless
+# fills with no commissions (the original behavior).
+type CostModel = { spread_bps :: Int, impact_bps :: Int, lot :: Int, fee_bps :: Int, fee_per_unit_cents :: Int }
 
 type Scenario = {
   version          :: Str,
@@ -64,7 +66,7 @@ type Scenario = {
 }
 
 fn cost_active(c :: CostModel) -> Bool {
-  c.spread_bps > 0 or c.impact_bps > 0
+  c.spread_bps > 0 or c.impact_bps > 0 or c.fee_bps > 0 or c.fee_per_unit_cents > 0
 }
 
 # A scenario JSON without a "cost" block is frictionless. Lex's JSON parser
@@ -72,13 +74,22 @@ fn cost_active(c :: CostModel) -> Bool {
 # keeps every pre-cost scenario (and its scenario_id, see canonical) unchanged.
 fn inject_default_cost(s :: Str) -> Str {
   let t := str.trim(s)
-  str.slice(t, 0, str.len(t) - 1) + ",\"cost\":{\"spread_bps\":0,\"impact_bps\":0,\"lot\":1}}"
+  str.slice(t, 0, str.len(t) - 1) + ",\"cost\":{\"spread_bps\":0,\"impact_bps\":0,\"lot\":1,\"fee_bps\":0,\"fee_per_unit_cents\":0}}"
+}
+
+# A pre-fees cost block (spread/impact only) is missing the fee fields. The cost
+# object is always the last field, so the JSON ends in "}}" — splice fee defaults
+# in before the cost object's closing brace.
+fn inject_default_fees(s :: Str) -> Str {
+  let t := str.trim(s)
+  str.slice(t, 0, str.len(t) - 2) + ",\"fee_bps\":0,\"fee_per_unit_cents\":0}}"
 }
 
 # Parse scenario JSON. Field mismatch surfaces as Err.
 fn from_json(s :: Str) -> Result[Scenario, Str] {
-  let augmented := if str.contains(s, "\"cost\"") { s } else { inject_default_cost(s) }
-  let parsed :: Result[Scenario, Str] := json.parse(augmented)
+  let with_cost := if str.contains(s, "\"cost\"") { s } else { inject_default_cost(s) }
+  let with_fees := if str.contains(with_cost, "\"fee_bps\"") { with_cost } else { inject_default_fees(with_cost) }
+  let parsed :: Result[Scenario, Str] := json.parse(with_fees)
   parsed
 }
 
@@ -90,6 +101,7 @@ fn canonical(sc :: Scenario) -> Str {
   let base := str.join([sc.version, sc.name, int.to_str(sc.seed), int.to_str(sc.episode_start_ms), int.to_str(sc.tick_ms), int.to_str(sc.max_steps), inst], " ")
   if cost_active(sc.cost) {
     base + " cost=" + int.to_str(sc.cost.spread_bps) + "/" + int.to_str(sc.cost.impact_bps) + "/" + int.to_str(sc.cost.lot)
+      + "/" + int.to_str(sc.cost.fee_bps) + "/" + int.to_str(sc.cost.fee_per_unit_cents)
   } else {
     base
   }

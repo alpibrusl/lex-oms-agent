@@ -97,6 +97,26 @@ fn effective_fill(sc :: scenario.Scenario, f :: Fill, mid :: d.Decimal) -> d.Dec
   }
 }
 
+# Commission charged on a fill: fee_bps of traded notional plus a per-unit
+# commission. Zero when the scenario sets no fees (returned untouched so
+# fee-free scenarios score byte-for-byte as before).
+fn fill_fee(sc :: scenario.Scenario, f :: Fill) -> d.Decimal {
+  if sc.cost.fee_bps == 0 and sc.cost.fee_per_unit_cents == 0 {
+    d.zero()
+  } else {
+    match scenario.price_at(sc, f.symbol, f.step) {
+      None => d.zero(),
+      Some(mid) => {
+        let notional := d.mul(d.from_int(f.quantity), mid)
+        let bps_fee := d.mul(notional, d.decimal(sc.cost.fee_bps, -4))
+        let unit_fee := d.mul(d.from_int(f.quantity), d.decimal(sc.cost.fee_per_unit_cents, -2))
+        d.add(bps_fee, unit_fee)
+      },
+    }
+  }
+}
+
+# Net P&L for a fill: gross (after spread/slippage) minus commissions.
 fn fill_pnl(sc :: scenario.Scenario, f :: Fill) -> d.Decimal {
   match scenario.price_at(sc, f.symbol, f.step) {
     None => d.zero(),
@@ -106,7 +126,12 @@ fn fill_pnl(sc :: scenario.Scenario, f :: Fill) -> d.Decimal {
         let fill_px := effective_fill(sc, f, mid)
         let edge := d.sub(mark, fill_px)
         let signed := if f.side == "sell" { d.negate(edge) } else { edge }
-        d.mul(d.from_int(f.quantity), signed)
+        let gross := d.mul(d.from_int(f.quantity), signed)
+        if sc.cost.fee_bps == 0 and sc.cost.fee_per_unit_cents == 0 {
+          gross
+        } else {
+          d.sub(gross, fill_fee(sc, f))
+        }
       },
     },
   }
@@ -120,6 +145,17 @@ fn episode_pnl(sc :: scenario.Scenario, lines :: List[tf.Line]) -> d.Decimal {
 
 fn pnl_str(sc :: scenario.Scenario, lines :: List[tf.Line]) -> Str {
   pos.decimal_to_str(episode_pnl(sc, lines))
+}
+
+# Total commissions across all fills (reported in the verdict; pnl is net of it).
+fn episode_fees(sc :: scenario.Scenario, lines :: List[tf.Line]) -> d.Decimal {
+  list.fold(accepted_fills(lines), d.zero(), fn (acc :: d.Decimal, f :: Fill) -> d.Decimal {
+    d.add(acc, fill_fee(sc, f))
+  })
+}
+
+fn fees_str(sc :: scenario.Scenario, lines :: List[tf.Line]) -> Str {
+  pos.decimal_to_str(episode_fees(sc, lines))
 }
 
 # ---- Notional ----------------------------------------------------------

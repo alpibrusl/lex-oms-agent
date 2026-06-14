@@ -199,6 +199,7 @@ fn verdict_json(verified :: Bool, sc :: scenario.Scenario, replayed :: List[tf.L
     + ",\"fills\":" + int.to_str(fills.fill_count(replayed))
     + ",\"pnl\":\"" + fills.pnl_str(sc, replayed) + "\""
     + ",\"notional\":\"" + fills.notional_str(sc, replayed) + "\""
+    + ",\"fees\":\"" + fills.fees_str(sc, replayed) + "\""
     + ",\"disqualified\":" + bool_str(dq)
     + ",\"divergence_at\":" + int.to_str(divergence)
     + ",\"result\":\"" + result_str(result) + "\"}"
