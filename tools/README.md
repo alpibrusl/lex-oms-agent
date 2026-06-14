@@ -50,9 +50,25 @@ Pre-generated examples: `scenarios/crypto-48h.json`, `scenarios/stocks-1mo.json`
 Products are aligned to the shortest series. Regenerate any time; the `scenario_id`
 changes with the data — each snapshot is its own immutable episode.
 
+### Execution cost model (optional)
+A scenario may carry a `cost` block; without one, fills are frictionless (the
+original behavior, and the generator's default output). When present and non-zero
+it's folded into the `scenario_id`, so cost-bearing episodes are pinned just like
+the prices.
+```json
+"cost": { "spread_bps": 5, "impact_bps": 3, "lot": 1 }
+```
+- `spread_bps` — half-spread crossed on every fill (buys up, sells down).
+- `impact_bps` / `lot` — linear market impact: `impact_bps` of extra slippage per
+  `lot` shares of order size, so a large order's average fill degrades with size.
+
+Effective fill = `mid × (1 ± (spread_bps + impact_bps·qty/lot) / 10000)`. See
+`src/arena/fills.lex`. Example: `scenarios/crypto-48h-costs.json`.
+
 ### Tests
 `lex run --allow-effects … tools/gen_test.lex run_all` — pure parsing tests, no network.
+`lex run --allow-effects … tests/test_arena.lex arena_main` — includes spread + slippage tests.
 
 ### Roadmap
-- Realistic fills: spread + slippage — issue #20
-- Transaction costs — issue #21
+- Transaction costs (explicit fees/commissions) — issue #21
+- Partial fills — follow-up

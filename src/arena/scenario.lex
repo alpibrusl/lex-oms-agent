@@ -47,6 +47,11 @@ import "../agent" as agent
 
 type Instrument = { symbol :: Str, prices :: Str }
 
+# Execution cost model (see fills.lex). spread_bps is the per-side half-spread;
+# impact_bps is the slippage added per `lot` shares of order size (linear market
+# impact). All zero = frictionless fills (the original behavior).
+type CostModel = { spread_bps :: Int, impact_bps :: Int, lot :: Int }
+
 type Scenario = {
   version          :: Str,
   name             :: Str,
@@ -55,19 +60,39 @@ type Scenario = {
   tick_ms          :: Int,
   max_steps        :: Int,
   instruments      :: List[Instrument],
+  cost             :: CostModel,
+}
+
+fn cost_active(c :: CostModel) -> Bool {
+  c.spread_bps > 0 or c.impact_bps > 0
+}
+
+# A scenario JSON without a "cost" block is frictionless. Lex's JSON parser
+# rejects missing fields, so we splice in a zero default before parsing — this
+# keeps every pre-cost scenario (and its scenario_id, see canonical) unchanged.
+fn inject_default_cost(s :: Str) -> Str {
+  let t := str.trim(s)
+  str.slice(t, 0, str.len(t) - 1) + ",\"cost\":{\"spread_bps\":0,\"impact_bps\":0,\"lot\":1}}"
 }
 
 # Parse scenario JSON. Field mismatch surfaces as Err.
 fn from_json(s :: Str) -> Result[Scenario, Str] {
-  let parsed :: Result[Scenario, Str] := json.parse(s)
+  let augmented := if str.contains(s, "\"cost\"") { s } else { inject_default_cost(s) }
+  let parsed :: Result[Scenario, Str] := json.parse(augmented)
   parsed
 }
 
 # Canonical content string — field order fixed, unit-separator delimited
-# (same convention as lex-trail's event id).
+# (same convention as lex-trail's event id). The cost block is appended ONLY
+# when active, so frictionless scenarios keep their original scenario_id.
 fn canonical(sc :: Scenario) -> Str {
   let inst := str.join(list.map(sc.instruments, fn (i :: Instrument) -> Str { i.symbol + "=" + i.prices }), ";")
-  str.join([sc.version, sc.name, int.to_str(sc.seed), int.to_str(sc.episode_start_ms), int.to_str(sc.tick_ms), int.to_str(sc.max_steps), inst], " ")
+  let base := str.join([sc.version, sc.name, int.to_str(sc.seed), int.to_str(sc.episode_start_ms), int.to_str(sc.tick_ms), int.to_str(sc.max_steps), inst], " ")
+  if cost_active(sc.cost) {
+    base + " cost=" + int.to_str(sc.cost.spread_bps) + "/" + int.to_str(sc.cost.impact_bps) + "/" + int.to_str(sc.cost.lot)
+  } else {
+    base
+  }
 }
 
 # Content-addressed scenario id.
