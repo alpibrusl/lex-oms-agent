@@ -56,27 +56,35 @@ original behavior, and the generator's default output). When present and non-zer
 it's folded into the `scenario_id`, so cost-bearing episodes are pinned just like
 the prices.
 ```json
-"cost": { "spread_bps": 5, "impact_bps": 3, "lot": 1, "fee_bps": 10, "fee_per_unit_cents": 0 }
+"cost": { "spread_bps": 5, "impact_bps": 3, "lot": 1, "fee_bps": 10, "fee_per_unit_cents": 0, "max_fill": 0 }
 ```
 - `spread_bps` — half-spread crossed on every fill (buys up, sells down).
 - `impact_bps` / `lot` — linear market impact: `impact_bps` of extra slippage per
-  `lot` shares of order size, so a large order's average fill degrades with size.
+  `lot` shares of the *filled* size, so a large order's average fill degrades with size.
 - `fee_bps` — commission as basis points of traded notional.
 - `fee_per_unit_cents` — per-share/contract commission, in cents.
+- `max_fill` — per-order liquidity cap (shares); size beyond it is unfilled and
+  scores nothing. `0` = unlimited.
 
-Effective fill = `mid × (1 ± (spread_bps + impact_bps·qty/lot) / 10000)`; commission
-per fill = `notional · fee_bps/10000 + qty · fee_per_unit_cents/100`. **P&L in the
-verdict is net of commissions**, with the total reported separately as `fees`. See
-`src/arena/fills.lex`. Examples: `scenarios/crypto-48h-costs.json` (spread+impact),
-`scenarios/crypto-48h-fees.json` (+ commission).
+Effective fill = `mid × (1 ± (spread_bps + impact_bps·filled/lot) / 10000)`; commission
+per fill = `notional · fee_bps/10000 + filled · fee_per_unit_cents/100`; `filled =
+min(qty, max_fill)`. **P&L in the verdict is net of commissions**, with the total
+reported separately as `fees`. See `src/arena/fills.lex`. Examples:
+`scenarios/crypto-48h-costs.json` (spread+impact), `scenarios/crypto-48h-fees.json`
+(+ commission).
 
-A pre-fees cost block (just spread/impact) still parses — fee fields default to
-zero; a scenario with no `cost` block at all stays frictionless.
+**Generating cost-bearing scenarios:** set `ARENA_COST` to a cost JSON object and the
+generator splices it in:
+```
+ARENA_COST='{"spread_bps":5,"impact_bps":3,"lot":1,"fee_bps":10,"fee_per_unit_cents":0,"max_fill":0}' \
+  lex run … tools/gen_scenario.lex gen 'BTC-USD,ETH-USD' 3600 48 crypto-real out.json
+```
+Older cost blocks missing newer fields (fees, then `max_fill`) still parse — the
+missing fields default to zero; a scenario with no `cost` block stays frictionless.
 
 ### Tests
 `lex run --allow-effects … tools/gen_test.lex run_all` — pure parsing tests, no network.
-`lex run --allow-effects … tests/test_arena.lex arena_main` — spread, slippage + fee tests.
+`lex run --allow-effects … tests/test_arena.lex arena_main` — spread, slippage, fee + partial-fill tests.
 
 ### Roadmap
-- Partial fills — follow-up
-- Surface `fees` as a leaderboard column (loom-cloud) — follow-up
+- Surface `fees` as a leaderboard column (loom-cloud) — issue #32

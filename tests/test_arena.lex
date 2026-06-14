@@ -28,7 +28,7 @@ fn check(name :: Str, cond :: Bool) -> Result[Unit, Str] {
 }
 
 fn test_scenario() -> scenario.Scenario {
-  { version: "2", name: "test-ep", seed: 7, episode_start_ms: 1700000000000, tick_ms: 1000, max_steps: 20, instruments: [{ symbol: "AAPL", prices: "100.00,101.50,103.00" }], cost: { spread_bps: 0, impact_bps: 0, lot: 1, fee_bps: 0, fee_per_unit_cents: 0 } }
+  { version: "2", name: "test-ep", seed: 7, episode_start_ms: 1700000000000, tick_ms: 1000, max_steps: 20, instruments: [{ symbol: "AAPL", prices: "100.00,101.50,103.00" }], cost: { spread_bps: 0, impact_bps: 0, lot: 1, fee_bps: 0, fee_per_unit_cents: 0, max_fill: 0 } }
 }
 
 fn strategy(history :: List[agent.Step]) -> tool.Tool {
@@ -97,7 +97,7 @@ fn t_tampered_rejected() -> [sql, time, crypto, fs_write] Result[Unit, Str] {
 # Scenario id is content-addressed: any field change changes the id.
 fn t_scenario_id_content_addressed() -> Result[Unit, Str] {
   let a := test_scenario()
-  let b := { version: "2", name: "test-ep", seed: 8, episode_start_ms: 1700000000000, tick_ms: 1000, max_steps: 20, instruments: [{ symbol: "AAPL", prices: "100.00,101.50,103.00" }], cost: { spread_bps: 0, impact_bps: 0, lot: 1, fee_bps: 0, fee_per_unit_cents: 0 } }
+  let b := { version: "2", name: "test-ep", seed: 8, episode_start_ms: 1700000000000, tick_ms: 1000, max_steps: 20, instruments: [{ symbol: "AAPL", prices: "100.00,101.50,103.00" }], cost: { spread_bps: 0, impact_bps: 0, lot: 1, fee_bps: 0, fee_per_unit_cents: 0, max_fill: 0 } }
   check("seed participates in scenario id", scenario.scenario_id(a) != scenario.scenario_id(b))
 }
 
@@ -157,7 +157,7 @@ fn t_notional_breach_rejected() -> [sql, time, crypto, fs_write] Result[Unit, St
 # ---- cost model (spread + slippage) ---------------------------------
 
 fn cost_scenario(spread :: Int, impact :: Int, lot :: Int) -> scenario.Scenario {
-  { version: "2", name: "cost-ep", seed: 7, episode_start_ms: 1700000000000, tick_ms: 1000, max_steps: 20, instruments: [{ symbol: "AAPL", prices: "100.00,101.50,103.00" }], cost: { spread_bps: spread, impact_bps: impact, lot: lot, fee_bps: 0, fee_per_unit_cents: 0 } }
+  { version: "2", name: "cost-ep", seed: 7, episode_start_ms: 1700000000000, tick_ms: 1000, max_steps: 20, instruments: [{ symbol: "AAPL", prices: "100.00,101.50,103.00" }], cost: { spread_bps: spread, impact_bps: impact, lot: lot, fee_bps: 0, fee_per_unit_cents: 0, max_fill: 0 } }
 }
 
 fn buy_fill(q :: Int) -> fills.Fill {
@@ -189,7 +189,7 @@ fn t_slippage_convex() -> Result[Unit, Str] {
 # ---- commissions ----------------------------------------------------
 
 fn fee_scenario(fee_bps :: Int, fee_unit :: Int) -> scenario.Scenario {
-  { version: "2", name: "fee-ep", seed: 7, episode_start_ms: 1700000000000, tick_ms: 1000, max_steps: 20, instruments: [{ symbol: "AAPL", prices: "100.00,101.50,103.00" }], cost: { spread_bps: 0, impact_bps: 0, lot: 1, fee_bps: fee_bps, fee_per_unit_cents: fee_unit } }
+  { version: "2", name: "fee-ep", seed: 7, episode_start_ms: 1700000000000, tick_ms: 1000, max_steps: 20, instruments: [{ symbol: "AAPL", prices: "100.00,101.50,103.00" }], cost: { spread_bps: 0, impact_bps: 0, lot: 1, fee_bps: fee_bps, fee_per_unit_cents: fee_unit, max_fill: 0 } }
 }
 
 # Buy 100 AAPL @ 101.50, final 103.00 → gross pnl 150.00. With 10bps + 5c/sh:
@@ -204,6 +204,24 @@ fn t_fee_cost() -> Result[Unit, Str] {
   }
 }
 
+# ---- partial fills --------------------------------------------------
+
+fn liquidity_scenario(max_fill :: Int) -> scenario.Scenario {
+  { version: "2", name: "liq-ep", seed: 7, episode_start_ms: 1700000000000, tick_ms: 1000, max_steps: 20, instruments: [{ symbol: "AAPL", prices: "100.00,101.50,103.00" }], cost: { spread_bps: 0, impact_bps: 0, lot: 1, fee_bps: 0, fee_per_unit_cents: 0, max_fill: max_fill } }
+}
+
+# An order for 2000 with max_fill 500 fills only 500: pnl = 500*(103-101.50)
+# = 750.00, notional = 500*101.50 = 50750.00 (not 2000-share values).
+fn t_partial_fill() -> Result[Unit, Str] {
+  let sc := liquidity_scenario(500)
+  let f := buy_fill(2000)
+  if d.compare(fills.fill_pnl(sc, f), d.decimal(75000, -2)) == 0 {
+    check("notional reflects capped fill", d.compare(fills.fill_notional(sc, f), d.decimal(5075000, -2)) == 0)
+  } else {
+    Err("expected capped pnl 750.00, got " + pos.decimal_to_str(fills.fill_pnl(sc, f)))
+  }
+}
+
 fn count_failures(results :: List[Result[Unit, Str]]) -> Int {
   list.fold(results, 0, fn (acc :: Int, v :: Result[Unit, Str]) -> Int {
     match v {
@@ -214,5 +232,5 @@ fn count_failures(results :: List[Result[Unit, Str]]) -> Int {
 }
 
 fn arena_main() -> [sql, time, crypto, fs_write] Int {
-  count_failures([t_verified_roundtrip(), t_tampered_rejected(), t_scenario_id_content_addressed(), t_pnl_from_trail(), t_notional_breach_rejected(), t_spread_cost(), t_slippage_convex(), t_fee_cost()])
+  count_failures([t_verified_roundtrip(), t_tampered_rejected(), t_scenario_id_content_addressed(), t_pnl_from_trail(), t_notional_breach_rejected(), t_spread_cost(), t_slippage_convex(), t_fee_cost(), t_partial_fill()])
 }

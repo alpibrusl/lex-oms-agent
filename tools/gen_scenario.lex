@@ -22,6 +22,7 @@ import "std.str" as str
 import "std.int" as int
 import "std.list" as list
 import "std.float" as float
+import "std.env" as env
 
 import "lex-cli/api" as api
 
@@ -131,7 +132,17 @@ fn instrument_json(d :: ProdData, n :: Int) -> Str {
 # Build the v2 scenario JSON from fetched products, write it, then parse it
 # back to confirm it's well-formed and print the frozen scenario_id.
 
-fn emit(ds :: List[ProdData], name :: Str, tick_ms :: Int, out_path :: Str) -> [io] Int {
+# An optional execution cost block, taken verbatim from the ARENA_COST env var
+# (a JSON object, e.g. {"spread_bps":5,"impact_bps":3,"lot":1,"fee_bps":10}).
+# Unset → frictionless scenario (from_json fills cost defaults on read).
+fn cost_block() -> [env] Str {
+  match env.get("ARENA_COST") {
+    None => "",
+    Some(c) => if str.is_empty(str.trim(c)) { "" } else { ",\"cost\":" + c },
+  }
+}
+
+fn emit(ds :: List[ProdData], name :: Str, tick_ms :: Int, out_path :: Str) -> [io, env] Int {
   let n := min_count(ds)
   let start := match list.head(ds) { None => 0, Some(d) => d.first_time_ms }
   let instruments := str.join(list.map(ds, fn (d :: ProdData) -> Str { instrument_json(d, n) }), ",")
@@ -139,7 +150,7 @@ fn emit(ds :: List[ProdData], name :: Str, tick_ms :: Int, out_path :: Str) -> [
     + "\",\"seed\":0,\"episode_start_ms\":" + int.to_str(start)
     + ",\"tick_ms\":" + int.to_str(tick_ms)
     + ",\"max_steps\":" + int.to_str(n)
-    + ",\"instruments\":[" + instruments + "]}"
+    + ",\"instruments\":[" + instruments + "]" + cost_block() + "}"
   match io.write(out_path, scenario_json) {
     Err(e) => { let __ := io.print("{\"error\":\"write failed: " + e + "\"}") 1 },
     Ok(_) => match scenario.from_json(scenario_json) {
