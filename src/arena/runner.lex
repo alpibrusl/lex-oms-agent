@@ -163,6 +163,7 @@ fn run_agent(scenario_path :: Str, agent_cmd :: Str, out_path :: Str) -> [sql, t
                         + ",\"fills\":" + int.to_str(fills.fill_count(lines))
                         + ",\"pnl\":\"" + fills.pnl_str(sc, lines) + "\""
                         + ",\"notional\":\"" + fills.notional_str(sc, lines) + "\""
+                        + ",\"fees\":\"" + fills.fees_str(sc, lines) + "\""
                         + ",\"result\":\"" + esc(result_s) + "\"}")
                       0
                     },
