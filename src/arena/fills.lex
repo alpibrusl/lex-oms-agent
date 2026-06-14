@@ -79,14 +79,21 @@ fn accepted_fills(lines :: List[tf.Line]) -> List[Fill] {
 
 # ---- P&L ---------------------------------------------------------------
 
+# How many shares of an order actually fill: capped at the scenario's per-order
+# liquidity limit (max_fill); the remainder is unfilled and scores nothing.
+# max_fill = 0 means unlimited (the original behavior).
+fn filled_qty(sc :: scenario.Scenario, f :: Fill) -> Int {
+  if sc.cost.max_fill > 0 and f.quantity > sc.cost.max_fill { sc.cost.max_fill } else { f.quantity }
+}
+
 # The price an order actually fills at, given the scenario's cost model.
 # Starting from the scripted mid: buys cross the half-spread up and sells down,
-# plus linear market impact — impact_bps of slippage per `lot` shares of size,
-# so a large order's average fill degrades convexly with size. With a zero cost
-# model this returns the mid unchanged (the original frictionless behavior).
+# plus linear market impact — impact_bps of slippage per `lot` shares of the
+# FILLED size, so a large order's average fill degrades convexly with size. With
+# a zero cost model this returns the mid unchanged (frictionless behavior).
 fn effective_fill(sc :: scenario.Scenario, f :: Fill, mid :: d.Decimal) -> d.Decimal {
   let lot := if sc.cost.lot > 0 { sc.cost.lot } else { 1 }
-  let total_bps := sc.cost.spread_bps + sc.cost.impact_bps * f.quantity / lot
+  let total_bps := sc.cost.spread_bps + sc.cost.impact_bps * filled_qty(sc, f) / lot
   if total_bps == 0 {
     # Frictionless: return the mid untouched (same value AND scale), so every
     # pre-cost scenario scores byte-for-byte as before.
@@ -107,9 +114,10 @@ fn fill_fee(sc :: scenario.Scenario, f :: Fill) -> d.Decimal {
     match scenario.price_at(sc, f.symbol, f.step) {
       None => d.zero(),
       Some(mid) => {
-        let notional := d.mul(d.from_int(f.quantity), mid)
+        let fq := filled_qty(sc, f)
+        let notional := d.mul(d.from_int(fq), mid)
         let bps_fee := d.mul(notional, d.decimal(sc.cost.fee_bps, -4))
-        let unit_fee := d.mul(d.from_int(f.quantity), d.decimal(sc.cost.fee_per_unit_cents, -2))
+        let unit_fee := d.mul(d.from_int(fq), d.decimal(sc.cost.fee_per_unit_cents, -2))
         d.add(bps_fee, unit_fee)
       },
     }
@@ -126,7 +134,7 @@ fn fill_pnl(sc :: scenario.Scenario, f :: Fill) -> d.Decimal {
         let fill_px := effective_fill(sc, f, mid)
         let edge := d.sub(mark, fill_px)
         let signed := if f.side == "sell" { d.negate(edge) } else { edge }
-        let gross := d.mul(d.from_int(f.quantity), signed)
+        let gross := d.mul(d.from_int(filled_qty(sc, f)), signed)
         if sc.cost.fee_bps == 0 and sc.cost.fee_per_unit_cents == 0 {
           gross
         } else {
@@ -166,7 +174,7 @@ fn fees_str(sc :: scenario.Scenario, lines :: List[tf.Line]) -> Str {
 fn fill_notional(sc :: scenario.Scenario, f :: Fill) -> d.Decimal {
   match scenario.price_at(sc, f.symbol, f.step) {
     None => d.zero(),
-    Some(fill_px) => d.mul(d.from_int(f.quantity), fill_px),
+    Some(fill_px) => d.mul(d.from_int(filled_qty(sc, f)), fill_px),
   }
 }
 
