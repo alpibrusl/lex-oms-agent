@@ -38,52 +38,66 @@ import "lex-llm/provider" as prov
 import "lex-oms/src/server" as srv
 
 import "../src/agent"              as agent
-import "lex-llm/src/providers/anthropic" as anth
-import "lex-llm/src/providers/vertex"    as vertex
+import "lex-llm/src/providers"     as providers
 import "../src/llm_decide"         as llm_decide
 
 # ---- Provider selection from env ------------------------------------
+# One backend, chosen by LLM_PROVIDER (default anthropic). Local models work:
+#   LLM_PROVIDER=mlx    MLX_URL=http://localhost:8082    (mlx_lm.server)
+#   LLM_PROVIDER=ollama OLLAMA_URL=http://localhost:11434
+#   LLM_PROVIDER=vllm   VLLM_URL=http://localhost:8000
+# Cloud: openai/anthropic/google/mistral (<X>_API_KEY) or vertex
+#   (VERTEX_ACCESS_TOKEN + VERTEX_PROJECT [+ VERTEX_LOCATION]).
 
 fn get_env(key :: Str) -> [env] Str {
   match env.get(key) { Some(v) => v, None => "" }
 }
 
-fn make_anthropic_provider() -> [env] prov.Provider {
-  anth.make_provider(anth.default_config(get_env("ANTHROPIC_API_KEY")))
+fn provider_name() -> [env] Str {
+  let n := get_env("LLM_PROVIDER")
+  if str.is_empty(n) { "anthropic" } else { n }
 }
 
-fn make_vertex_provider() -> [env] prov.Provider {
-  let project      := get_env("VERTEX_PROJECT")
-  let location     := get_env("VERTEX_LOCATION")
-  let token        := get_env("VERTEX_ACCESS_TOKEN")
-  let api_key      := get_env("VERTEX_API_KEY")
-  let access_token := if str.is_empty(token) { api_key } else { token }
-  let cfg := if str.is_empty(location) {
-    vertex.default_config(access_token, project)
-  } else {
-    vertex.config_at(access_token, project, location)
-  }
-  vertex.make_provider(cfg)
+fn or_default(v :: Str, def :: Str) -> Str {
+  if str.is_empty(v) { def } else { v }
+}
+
+# Base URL/host (local + OpenAI-compatible servers) or the Vertex location.
+fn provider_url(name :: Str) -> [env] Str {
+  if name == "mlx" { or_default(get_env("MLX_URL"), "http://localhost:8082") }
+  else { if name == "ollama" { or_default(get_env("OLLAMA_URL"), "http://localhost:11434") }
+  else { if name == "vllm" { or_default(get_env("VLLM_URL"), "http://localhost:8000") }
+  else { if name == "vertex" { or_default(get_env("VERTEX_LOCATION"), "eu") }
+  else { "" } } } }
+}
+
+# API key for cloud providers; for vertex, the packed "<token>|||<project>".
+fn provider_key(name :: Str) -> [env] Str {
+  if name == "openai" { get_env("OPENAI_API_KEY") }
+  else { if name == "anthropic" { get_env("ANTHROPIC_API_KEY") }
+  else { if name == "google" { get_env("GOOGLE_API_KEY") }
+  else { if name == "mistral" { get_env("MISTRAL_API_KEY") }
+  else { if name == "vertex" { get_env("VERTEX_ACCESS_TOKEN") + "|||" + get_env("VERTEX_PROJECT") }
+  else { "" } } } } }
 }
 
 fn select_provider() -> [env] prov.Provider {
-  match get_env("LLM_PROVIDER") {
-    "vertex" => make_vertex_provider(),
-    _        => make_anthropic_provider(),
-  }
+  let name := provider_name()
+  providers.select_provider(name, provider_url(name), provider_key(name))
+}
+
+fn default_model(name :: Str) -> prov.ModelRef {
+  if name == "vertex" { { provider: "vertex", model: "gemini-3.5-flash" } }
+  else { if name == "mlx" { { provider: "mlx", model: "mlx-community/Qwen2.5-7B-Instruct-4bit" } }
+  else { if name == "ollama" { { provider: "ollama", model: "llama3" } }
+  else { if name == "anthropic" { prov.claude_haiku() }
+  else { { provider: name, model: "" } } } } }
 }
 
 fn select_model() -> [env] prov.ModelRef {
-  match get_env("LLM_PROVIDER") {
-    "vertex" => {
-      let m := get_env("VERTEX_MODEL")
-      if str.is_empty(m) { vertex.gemini_35_flash() } else { { provider: "vertex", model: m } }
-    },
-    _ => {
-      let m := get_env("ANTHROPIC_MODEL")
-      if str.is_empty(m) { prov.claude_haiku() } else { { provider: "anthropic", model: m } }
-    },
-  }
+  let name := provider_name()
+  let m := get_env("LLM_MODEL")
+  if str.is_empty(m) { default_model(name) } else { { provider: name, model: m } }
 }
 
 # ---- Shared helpers ------------------------------------------------
