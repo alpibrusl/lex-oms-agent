@@ -1,5 +1,9 @@
 # lex-oms-agent
 
+[![CI](https://github.com/alpibrusl/lex-oms-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/alpibrusl/lex-oms-agent/actions/workflows/ci.yml)
+
+**Part of the [Lex](https://lexlang.org) project** — Finance · [Manifesto](https://lexlang.org/manifesto) · [All packages](https://lexlang.org)
+
 LLM-backed autonomous trading agents for Lex with three compile-time guarantees no Python framework can match.
 
 ---
