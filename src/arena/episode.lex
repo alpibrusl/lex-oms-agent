@@ -15,18 +15,25 @@
 #     src/arena/episode.lex demo_run scenarios/ep1.json /tmp/my_trail.jsonl
 
 import "std.io" as io
+
 import "std.str" as str
+
 import "std.int" as int
+
 import "std.list" as list
 
 import "lex-orm/src/connection" as conn
+
 import "lex-trail/src/log" as trail_log
 
 import "lex-oms/src/server" as srv
 
 import "../agent" as agent
+
 import "../tool" as tool
+
 import "./scenario" as scenario
+
 import "./trail_file" as tf
 
 type EpisodeOut = { lines :: List[tf.Line], result :: agent.AgentResult }
@@ -39,27 +46,27 @@ fn run_episode(sc :: scenario.Scenario, decide :: (List[agent.Step]) -> tool.Too
     Ok(db) => match srv.init_db(db) {
       Err(e) => Err("episode: init_db failed: " + e),
       Ok(_) => match scenario.seed_marks(db, sc) {
-      Err(e) => Err("episode: seed_marks failed: " + e),
-      Ok(_) => match trail_log.open_memory() {
-        Err(e) => Err("episode: log open failed: " + e),
-        Ok(log) => {
-          let ctx := { db: db, log: log, max_steps: sc.max_steps, clock: scenario.clock(sc) }
-          let result := agent.run(ctx, decide)
-          match trail_log.range(log, 0, 4000000000000000) {
-            Err(e) => Err("episode: trail read failed: " + e),
-            Ok(evts) => {
-              let lines := list.map(evts, fn (e :: { id :: Str, kind :: Str, parent :: Option[Str], payload_json :: Str, ts_ms :: Int }) -> tf.Line {
-                let p := match e.parent {
-                  Some(s) => s,
-                  None => "",
-                }
-                { id: e.id, kind: e.kind, parent: p, payload_json: e.payload_json, ts_ms: e.ts_ms }
-              })
-              Ok({ lines: lines, result: result })
-            },
-          }
+        Err(e) => Err("episode: seed_marks failed: " + e),
+        Ok(_) => match trail_log.open_memory() {
+          Err(e) => Err("episode: log open failed: " + e),
+          Ok(log) => {
+            let ctx := { db: db, log: log, max_steps: sc.max_steps, clock: scenario.clock(sc) }
+            let result := agent.run(ctx, decide)
+            match trail_log.range(log, 0, 4000000000000000) {
+              Err(e) => Err("episode: trail read failed: " + e),
+              Ok(evts) => {
+                let lines := list.map(evts, fn (e :: { id :: Str, kind :: Str, parent :: Option[Str], payload_json :: Str, ts_ms :: Int }) -> tf.Line {
+                  let p := match e.parent {
+                    Some(s) => s,
+                    None => "",
+                  }
+                  { id: e.id, kind: e.kind, parent: p, payload_json: e.payload_json, ts_ms: e.ts_ms }
+                })
+                Ok({ lines: lines, result: result })
+              },
+            }
+          },
         },
-      },
       },
     },
   }
@@ -69,11 +76,23 @@ fn run_episode(sc :: scenario.Scenario, decide :: (List[agent.Step]) -> tool.Too
 # Observe the blotter, take two positions, check risk, declare done.
 fn demo_decide(history :: List[agent.Step]) -> tool.Tool {
   let n := agent.steps_taken(history)
-  if n == 0 { Observe(Blotter) }
-  else { if n == 1 { SubmitOrder({ cl_ord_id: "ARENA-001", symbol: "AAPL", side: "buy", quantity: 100 }) }
-  else { if n == 2 { SubmitOrder({ cl_ord_id: "ARENA-002", symbol: "MSFT", side: "buy", quantity: 50 }) }
-  else { if n == 3 { Observe(Risk) }
-  else { AgentDone("two positions taken within limits") } } } }
+  if n == 0 {
+    Observe(Blotter)
+  } else {
+    if n == 1 {
+      SubmitOrder({ cl_ord_id: "ARENA-001", symbol: "AAPL", side: "buy", quantity: 100 })
+    } else {
+      if n == 2 {
+        SubmitOrder({ cl_ord_id: "ARENA-002", symbol: "MSFT", side: "buy", quantity: 50 })
+      } else {
+        if n == 3 {
+          Observe(Risk)
+        } else {
+          AgentDone("two positions taken within limits")
+        }
+      }
+    }
+  }
 }
 
 # Run the demo strategy against a scenario and write the trail file.
@@ -107,3 +126,4 @@ fn demo_run(scenario_path :: Str, out_path :: Str) -> [sql, time, crypto, fs_rea
     },
   }
 }
+

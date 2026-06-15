@@ -10,17 +10,20 @@
 # Effects: [sql, time]
 
 import "std.str" as str
+
 import "std.int" as int
+
 import "std.map" as map
 
 import "lex-orm/src/connection" as conn
+
 import "lex-trail/src/log" as trail_log
 
 import "lex-oms/src/server" as srv
 
 # ---- Tool ADT -------------------------------------------------------
-
 type OrderParams = { cl_ord_id :: Str, symbol :: Str, side :: Str, quantity :: Int }
+
 type CancelParams = { cl_ord_id :: Str, orig_cl_ord_id :: Str, symbol :: Str, side :: Str }
 
 type ObserveTarget = Blotter | Positions | Risk | Audit
@@ -49,14 +52,10 @@ fn tool_name(t :: Tool) -> Str {
 # decision.intent event carries the full call, not just a display name.
 fn tool_json(t :: Tool) -> Str {
   match t {
-    SubmitOrder(p) =>
-      "{\"t\":\"submit\",\"cl_ord_id\":\"" + escape_json_str(p.cl_ord_id) + "\",\"symbol\":\"" + escape_json_str(p.symbol) + "\",\"side\":\"" + escape_json_str(p.side) + "\",\"quantity\":" + int.to_str(p.quantity) + ",\"orig_cl_ord_id\":\"\",\"target\":\"\",\"reason\":\"\"}",
-    CancelOrder(p) =>
-      "{\"t\":\"cancel\",\"cl_ord_id\":\"" + escape_json_str(p.cl_ord_id) + "\",\"symbol\":\"" + escape_json_str(p.symbol) + "\",\"side\":\"" + escape_json_str(p.side) + "\",\"quantity\":0,\"orig_cl_ord_id\":\"" + escape_json_str(p.orig_cl_ord_id) + "\",\"target\":\"\",\"reason\":\"\"}",
-    Observe(target) =>
-      "{\"t\":\"observe\",\"cl_ord_id\":\"\",\"symbol\":\"\",\"side\":\"\",\"quantity\":0,\"orig_cl_ord_id\":\"\",\"target\":\"" + observe_name(target) + "\",\"reason\":\"\"}",
-    AgentDone(reason) =>
-      "{\"t\":\"done\",\"cl_ord_id\":\"\",\"symbol\":\"\",\"side\":\"\",\"quantity\":0,\"orig_cl_ord_id\":\"\",\"target\":\"\",\"reason\":\"" + escape_json_str(reason) + "\"}",
+    SubmitOrder(p) => "{\"t\":\"submit\",\"cl_ord_id\":\"" + escape_json_str(p.cl_ord_id) + "\",\"symbol\":\"" + escape_json_str(p.symbol) + "\",\"side\":\"" + escape_json_str(p.side) + "\",\"quantity\":" + int.to_str(p.quantity) + ",\"orig_cl_ord_id\":\"\",\"target\":\"\",\"reason\":\"\"}",
+    CancelOrder(p) => "{\"t\":\"cancel\",\"cl_ord_id\":\"" + escape_json_str(p.cl_ord_id) + "\",\"symbol\":\"" + escape_json_str(p.symbol) + "\",\"side\":\"" + escape_json_str(p.side) + "\",\"quantity\":0,\"orig_cl_ord_id\":\"" + escape_json_str(p.orig_cl_ord_id) + "\",\"target\":\"\",\"reason\":\"\"}",
+    Observe(target) => "{\"t\":\"observe\",\"cl_ord_id\":\"\",\"symbol\":\"\",\"side\":\"\",\"quantity\":0,\"orig_cl_ord_id\":\"\",\"target\":\"" + observe_name(target) + "\",\"reason\":\"\"}",
+    AgentDone(reason) => "{\"t\":\"done\",\"cl_ord_id\":\"\",\"symbol\":\"\",\"side\":\"\",\"quantity\":0,\"orig_cl_ord_id\":\"\",\"target\":\"\",\"reason\":\"" + escape_json_str(reason) + "\"}",
   }
 }
 
@@ -77,20 +76,33 @@ type ToolCall = { t :: Str, cl_ord_id :: Str, symbol :: Str, side :: Str, quanti
 fn tool_from_call(c :: ToolCall) -> Tool {
   if c.t == "submit" {
     SubmitOrder({ cl_ord_id: c.cl_ord_id, symbol: c.symbol, side: c.side, quantity: c.quantity })
-  } else { if c.t == "cancel" {
-    CancelOrder({ cl_ord_id: c.cl_ord_id, orig_cl_ord_id: c.orig_cl_ord_id, symbol: c.symbol, side: c.side })
-  } else { if c.t == "observe" {
-    Observe(observe_from_name(c.target))
   } else {
-    AgentDone(c.reason)
-  } } }
+    if c.t == "cancel" {
+      CancelOrder({ cl_ord_id: c.cl_ord_id, orig_cl_ord_id: c.orig_cl_ord_id, symbol: c.symbol, side: c.side })
+    } else {
+      if c.t == "observe" {
+        Observe(observe_from_name(c.target))
+      } else {
+        AgentDone(c.reason)
+      }
+    }
+  }
 }
 
 fn observe_from_name(s :: Str) -> ObserveTarget {
-  if s == "positions" { Positions }
-  else { if s == "risk" { Risk }
-  else { if s == "audit" { Audit }
-  else { Blotter } } }
+  if s == "positions" {
+    Positions
+  } else {
+    if s == "risk" {
+      Risk
+    } else {
+      if s == "audit" {
+        Audit
+      } else {
+        Blotter
+      }
+    }
+  }
 }
 
 # ---- Context helpers (mirrors lex-oms demo pattern) -----------------
@@ -106,7 +118,6 @@ fn get_ctx(ts_ms :: Int) -> { method :: Str, path :: Str, query :: Str, body :: 
 }
 
 # ---- JSON helpers ---------------------------------------------------
-
 # Escape backslashes then double-quotes so LLM-supplied strings cannot
 # inject extra fields into the JSON body sent to the OMS.
 fn escape_json_str(s :: Str) -> Str {
@@ -128,23 +139,19 @@ fn cancel_json(p :: CancelParams) -> Str {
 # the sim_ts_ms state entry so their trail events share it.
 fn dispatch(db :: conn.ConnDb, log :: trail_log.Log, t :: Tool, ts_ms :: Int) -> [sql, time] ToolOutcome {
   match t {
-    AgentDone(reason) =>
-      { ok: true, status: 0, body: "{\"done\":\"" + reason + "\"}" },
-    Observe(target) =>
-      dispatch_observe(db, log, target, ts_ms),
-    SubmitOrder(p) =>
-      dispatch_submit(db, log, p, ts_ms),
-    CancelOrder(p) =>
-      dispatch_cancel(db, log, p, ts_ms),
+    AgentDone(reason) => { ok: true, status: 0, body: "{\"done\":\"" + reason + "\"}" },
+    Observe(target) => dispatch_observe(db, log, target, ts_ms),
+    SubmitOrder(p) => dispatch_submit(db, log, p, ts_ms),
+    CancelOrder(p) => dispatch_cancel(db, log, p, ts_ms),
   }
 }
 
 fn dispatch_observe(db :: conn.ConnDb, log :: trail_log.Log, target :: ObserveTarget, ts_ms :: Int) -> [sql, time] ToolOutcome {
   let res := match target {
-    Blotter   => srv.get_blotter(db, get_ctx(ts_ms)),
+    Blotter => srv.get_blotter(db, get_ctx(ts_ms)),
     Positions => srv.get_positions(db, get_ctx(ts_ms)),
-    Risk      => srv.get_risk(db, get_ctx(ts_ms)),
-    Audit     => srv.get_audit(log, get_ctx(ts_ms)),
+    Risk => srv.get_risk(db, get_ctx(ts_ms)),
+    Audit => srv.get_audit(log, get_ctx(ts_ms)),
   }
   { ok: res.status == 200, status: res.status, body: res.body }
 }
@@ -158,3 +165,4 @@ fn dispatch_cancel(db :: conn.ConnDb, log :: trail_log.Log, p :: CancelParams, t
   let res := srv.post_cancel(db, log, post_ctx(cancel_json(p), ts_ms))
   { ok: res.status == 200, status: res.status, body: res.body }
 }
+

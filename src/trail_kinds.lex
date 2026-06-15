@@ -2,8 +2,8 @@
 #
 # Naming convention: "agent.<noun>.<verb>" (past tense)
 # Effects: none.
-
 # Logged BEFORE tool dispatch — proves what the agent decided before the OMS acted.
+
 fn decision_intent() -> Str {
   "agent.decision.intent"
 }
@@ -20,3 +20,4 @@ fn goal_met() -> Str {
 fn budget_exhausted() -> Str {
   "agent.budget.exhausted"
 }
+

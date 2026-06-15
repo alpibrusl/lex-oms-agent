@@ -5,21 +5,30 @@
 #   lex run --allow-effects sql,time,fs_write tests/test_agent.lex integration_main
 
 import "std.list" as list
+
 import "std.str" as str
+
 import "std.int" as int
+
 import "std.map" as map
 
 import "lex-orm/src/connection" as conn
+
 import "lex-trail/src/log" as trail_log
 
 import "lex-oms/src/server" as srv
 
 import "../src/tool" as tool
+
 import "../src/agent" as agent
 
 # ---- Helpers --------------------------------------------------------
 fn check(name :: Str, cond :: Bool) -> Result[Unit, Str] {
-  if cond { Ok(()) } else { Err(name) }
+  if cond {
+    Ok(())
+  } else {
+    Err(name)
+  }
 }
 
 fn count_failures(results :: List[Result[Unit, Str]]) -> Int {
@@ -56,7 +65,9 @@ fn test_steps_taken_empty() -> Result[Unit, Str] {
 }
 
 fn count_list(xs :: List[Str]) -> Int {
-  list.fold(xs, 0, fn (acc :: Int, _x :: Str) -> Int { acc + 1 })
+  list.fold(xs, 0, fn (acc :: Int, _x :: Str) -> Int {
+    acc + 1
+  })
 }
 
 fn test_submitted_symbols_empty() -> Result[Unit, Str] {
@@ -86,9 +97,15 @@ fn one_shot_decide(_history :: List[agent.Step]) -> tool.Tool {
 
 fn three_step_decide(history :: List[agent.Step]) -> tool.Tool {
   let n := agent.steps_taken(history)
-  if n == 0 { Observe(Blotter) }
-  else { if n == 1 { SubmitOrder({ cl_ord_id: "IT-001", symbol: "AAPL", side: "buy", quantity: 10 }) }
-  else { AgentDone("done after submit") } }
+  if n == 0 {
+    Observe(Blotter)
+  } else {
+    if n == 1 {
+      SubmitOrder({ cl_ord_id: "IT-001", symbol: "AAPL", side: "buy", quantity: 10 })
+    } else {
+      AgentDone("done after submit")
+    }
+  }
 }
 
 fn intg_one_shot_goal_met(db :: conn.ConnDb, log :: trail_log.Log) -> [sql, time, crypto] Result[Unit, Str] {
@@ -100,7 +117,9 @@ fn intg_one_shot_goal_met(db :: conn.ConnDb, log :: trail_log.Log) -> [sql, time
 }
 
 fn intg_step_limit_enforced(db :: conn.ConnDb, log :: trail_log.Log) -> [sql, time, crypto] Result[Unit, Str] {
-  let always_observe := fn (_h :: List[agent.Step]) -> tool.Tool { Observe(Blotter) }
+  let always_observe := fn (_h :: List[agent.Step]) -> tool.Tool {
+    Observe(Blotter)
+  }
   let ctx := { db: db, log: log, max_steps: 3, clock: ClockWall }
   match agent.run(ctx, always_observe) {
     StepLimitReached(3) => Ok(()),
@@ -143,9 +162,15 @@ fn intg_audit_has_agent_events(db :: conn.ConnDb, log :: trail_log.Log) -> [sql,
 # so agent events and trade events share deterministic sim-time.
 fn observe_then_done(history :: List[agent.Step]) -> tool.Tool {
   let n := agent.steps_taken(history)
-  if n == 0 { Observe(Blotter) }
-  else { if n == 1 { SubmitOrder({ cl_ord_id: "SIM-001", symbol: "AAPL", side: "buy", quantity: 10 }) }
-  else { AgentDone("submitted deterministically") } }
+  if n == 0 {
+    Observe(Blotter)
+  } else {
+    if n == 1 {
+      SubmitOrder({ cl_ord_id: "SIM-001", symbol: "AAPL", side: "buy", quantity: 10 })
+    } else {
+      AgentDone("submitted deterministically")
+    }
+  }
 }
 
 fn joined_trail_ids() -> [sql, time, crypto, fs_write] Result[Str, Str] {
@@ -160,7 +185,9 @@ fn joined_trail_ids() -> [sql, time, crypto, fs_write] Result[Str, Str] {
           let __r := agent.run(ctx, observe_then_done)
           match trail_log.range(log, 0, 4000000000000000) {
             Err(e) => Err(e),
-            Ok(evts) => Ok(list.fold(evts, "", fn (acc :: Str, e :: { id :: Str, kind :: Str, parent :: Option[Str], payload_json :: Str, ts_ms :: Int }) -> Str { acc + e.id + "," })),
+            Ok(evts) => Ok(list.fold(evts, "", fn (acc :: Str, e :: { id :: Str, kind :: Str, parent :: Option[Str], payload_json :: Str, ts_ms :: Int }) -> Str {
+              acc + e.id + ","
+            })),
           }
         },
       }
@@ -196,3 +223,4 @@ fn integration_main() -> [sql, time, crypto, fs_write] Int {
     },
   }
 }
+

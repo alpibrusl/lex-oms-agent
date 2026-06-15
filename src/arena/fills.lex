@@ -17,15 +17,21 @@
 # Effects: none. All functions are pure.
 
 import "std.str" as str
+
 import "std.int" as int
+
 import "std.list" as list
+
 import "std.json" as json
 
 import "lex-money/src/decimal" as d
+
 import "lex-positions/src/position" as pos
 
 import "../tool" as tool
+
 import "./scenario" as scenario
+
 import "./trail_file" as tf
 
 type IntentPayload = { step :: Int, tool :: Str, call :: tool.ToolCall }
@@ -36,14 +42,17 @@ type MadePayload = { step :: Int, tool :: Str, ok :: Bool, status :: Int }
 type Fill = { step :: Int, symbol :: Str, side :: Str, quantity :: Int }
 
 # ---- Accepted-submit extraction ---------------------------------------
-
 fn made_ok_parents(lines :: List[tf.Line]) -> List[Str] {
   list.fold(lines, [], fn (acc :: List[Str], l :: tf.Line) -> List[Str] {
     if l.kind == "agent.decision.made" {
       let parsed :: Result[MadePayload, Str] := json.parse(l.payload_json)
       match parsed {
         Err(_) => acc,
-        Ok(p) => if p.ok { list.concat(acc, [l.parent]) } else { acc },
+        Ok(p) => if p.ok {
+          list.concat(acc, [l.parent])
+        } else {
+          acc
+        },
       }
     } else {
       acc
@@ -53,7 +62,11 @@ fn made_ok_parents(lines :: List[tf.Line]) -> List[Str] {
 
 fn contains(xs :: List[Str], x :: Str) -> Bool {
   list.fold(xs, false, fn (acc :: Bool, s :: Str) -> Bool {
-    if acc { true } else { s == x }
+    if acc {
+      true
+    } else {
+      s == x
+    }
   })
 }
 
@@ -78,12 +91,15 @@ fn accepted_fills(lines :: List[tf.Line]) -> List[Fill] {
 }
 
 # ---- P&L ---------------------------------------------------------------
-
 # How many shares of an order actually fill: capped at the scenario's per-order
 # liquidity limit (max_fill); the remainder is unfilled and scores nothing.
 # max_fill = 0 means unlimited (the original behavior).
 fn filled_qty(sc :: scenario.Scenario, f :: Fill) -> Int {
-  if sc.cost.max_fill > 0 and f.quantity > sc.cost.max_fill { sc.cost.max_fill } else { f.quantity }
+  if sc.cost.max_fill > 0 and f.quantity > sc.cost.max_fill {
+    sc.cost.max_fill
+  } else {
+    f.quantity
+  }
 }
 
 # The price an order actually fills at, given the scenario's cost model.
@@ -92,15 +108,21 @@ fn filled_qty(sc :: scenario.Scenario, f :: Fill) -> Int {
 # FILLED size, so a large order's average fill degrades convexly with size. With
 # a zero cost model this returns the mid unchanged (frictionless behavior).
 fn effective_fill(sc :: scenario.Scenario, f :: Fill, mid :: d.Decimal) -> d.Decimal {
-  let lot := if sc.cost.lot > 0 { sc.cost.lot } else { 1 }
+  let lot := if sc.cost.lot > 0 {
+    sc.cost.lot
+  } else {
+    1
+  }
   let total_bps := sc.cost.spread_bps + sc.cost.impact_bps * filled_qty(sc, f) / lot
   if total_bps == 0 {
-    # Frictionless: return the mid untouched (same value AND scale), so every
-    # pre-cost scenario scores byte-for-byte as before.
     mid
   } else {
     let adj := d.mul(mid, d.decimal(total_bps, -4))
-    if f.side == "sell" { d.sub(mid, adj) } else { d.add(mid, adj) }
+    if f.side == "sell" {
+      d.sub(mid, adj)
+    } else {
+      d.add(mid, adj)
+    }
   }
 }
 
@@ -133,7 +155,11 @@ fn fill_pnl(sc :: scenario.Scenario, f :: Fill) -> d.Decimal {
       Some(mark) => {
         let fill_px := effective_fill(sc, f, mid)
         let edge := d.sub(mark, fill_px)
-        let signed := if f.side == "sell" { d.negate(edge) } else { edge }
+        let signed := if f.side == "sell" {
+          d.negate(edge)
+        } else {
+          edge
+        }
         let gross := d.mul(d.from_int(filled_qty(sc, f)), signed)
         if sc.cost.fee_bps == 0 and sc.cost.fee_per_unit_cents == 0 {
           gross
@@ -170,7 +196,6 @@ fn fees_str(sc :: scenario.Scenario, lines :: List[tf.Line]) -> Str {
 # Gross notional deployed by one fill: qty × fill price (always positive;
 # a sell still consumes the same buying power). Orders in symbols without
 # a price script contribute zero, exactly like P&L.
-
 fn fill_notional(sc :: scenario.Scenario, f :: Fill) -> d.Decimal {
   match scenario.price_at(sc, f.symbol, f.step) {
     None => d.zero(),
@@ -195,3 +220,4 @@ fn notional_str(sc :: scenario.Scenario, lines :: List[tf.Line]) -> Str {
 fn fill_count(lines :: List[tf.Line]) -> Int {
   list.len(accepted_fills(lines))
 }
+

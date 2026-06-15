@@ -19,45 +19,31 @@
 # Effects: [sql, time, crypto]
 
 import "std.list" as list
+
 import "std.str" as str
+
 import "std.int" as int
+
 import "std.time" as time
 
 import "lex-orm/src/connection" as conn
+
 import "lex-trail/src/log" as trail_log
 
 import "./trail_kinds" as kinds
+
 import "./tool" as tool
 
 # ---- Types ----------------------------------------------------------
-
 # One completed step in the agent's history.
-type Step = {
-  step     :: Int,
-  tool     :: tool.Tool,
-  outcome  :: tool.ToolOutcome,
-  trail_id :: Str,
-  call_id  :: Str,   # LLM-assigned call_id (may include "|||thoughtSignature"); "" for scripted steps
-}
+type Step = { step :: Int, tool :: tool.Tool, outcome :: tool.ToolOutcome, trail_id :: Str, call_id :: Str }
 
 # Terminal outcome of a run.
 type AgentResult = GoalMet(Str) | StepLimitReached(Int)
 
-# Clock for trail timestamps.
-#   ClockWall             — wall clock (time.now_ms); existing behavior.
-#   ClockSim(start, tick) — sim-time: ts = start + step * tick. Under a
-#     sim clock the loop's trail events are deterministic: the same
-#     decision list produces byte-identical event hashes, which is what
-#     makes a trail replay-verifiable (arena).
-type Clock = ClockWall | ClockSim(Int, Int)
+type Clock = ClockWall | ClockSim((Int, Int))
 
-# Immutable context passed through every step.
-type AgentCtx = {
-  db        :: conn.ConnDb,
-  log       :: trail_log.Log,
-  max_steps :: Int,
-  clock     :: Clock,
-}
+type AgentCtx = { db :: conn.ConnDb, log :: trail_log.Log, max_steps :: Int, clock :: Clock }
 
 # Timestamp for step n under the given clock.
 fn clock_ts(c :: Clock, n :: Int) -> [time] Int {
@@ -68,7 +54,6 @@ fn clock_ts(c :: Clock, n :: Int) -> [time] Int {
 }
 
 # ---- Public API -----------------------------------------------------
-
 # Run the agent loop until Done or max_steps reached.
 # decide(history) returns the next Tool to execute (pure / scripted).
 fn run(ctx :: AgentCtx, decide :: (List[Step]) -> tool.Tool) -> [sql, time, crypto] AgentResult {
@@ -93,7 +78,6 @@ fn run_external(ctx :: AgentCtx, decide :: (List[Step]) -> [io, fs_read, fs_writ
 }
 
 # ---- Internal loop --------------------------------------------------
-
 fn step_loop_ext(ctx :: AgentCtx, decide :: (List[Step]) -> [io, fs_read, fs_write, proc] tool.Tool, history :: List[Step], n :: Int) -> [sql, time, crypto, io, fs_read, fs_write, proc] AgentResult {
   if n >= ctx.max_steps {
     let _trail := trail_log.append_at(ctx.log, kinds.budget_exhausted(), None, "{\"steps_taken\":" + int.to_str(n) + "}", clock_ts(ctx.clock, n))
@@ -163,9 +147,13 @@ fn step_loop_llm(ctx :: AgentCtx, decide :: (List[Step]) -> [net, llm] (tool.Too
     let _trail := trail_log.append_at(ctx.log, kinds.budget_exhausted(), None, "{\"steps_taken\":" + int.to_str(n) + "}", clock_ts(ctx.clock, n))
     StepLimitReached(n)
   } else {
-    let tc  := decide(history)
-    let t   := match tc { (x, _) => x }
-    let cid := match tc { (_, c) => c }
+    let tc := decide(history)
+    let t := match tc {
+      (x, _) => x,
+    }
+    let cid := match tc {
+      (_, c) => c,
+    }
     match t {
       AgentDone(reason) => {
         let _trail := trail_log.append_at(ctx.log, kinds.goal_met(), None, "{\"reason\":\"" + tool.escape_json_str(reason) + "\"}", clock_ts(ctx.clock, n))
@@ -197,9 +185,13 @@ fn step_loop_llm_history(ctx :: AgentCtx, decide :: (List[Step]) -> [net, llm] (
     let _trail := trail_log.append_at(ctx.log, kinds.budget_exhausted(), None, "{\"steps_taken\":" + int.to_str(n) + "}", clock_ts(ctx.clock, n))
     (StepLimitReached(n), history)
   } else {
-    let tc  := decide(history)
-    let t   := match tc { (x, _) => x }
-    let cid := match tc { (_, c) => c }
+    let tc := decide(history)
+    let t := match tc {
+      (x, _) => x,
+    }
+    let cid := match tc {
+      (_, c) => c,
+    }
     match t {
       AgentDone(reason) => {
         let _trail := trail_log.append_at(ctx.log, kinds.goal_met(), None, "{\"reason\":\"" + tool.escape_json_str(reason) + "\"}", clock_ts(ctx.clock, n))
@@ -231,11 +223,14 @@ fn make_payload(n :: Int, t :: tool.Tool, outcome :: tool.ToolOutcome) -> Str {
 }
 
 fn bool_s(b :: Bool) -> Str {
-  if b { "true" } else { "false" }
+  if b {
+    "true"
+  } else {
+    "false"
+  }
 }
 
 # ---- History helpers (for decision functions to query) --------------
-
 fn last_outcome(history :: List[Step]) -> Option[tool.ToolOutcome] {
   match list.head(list.reverse(history)) {
     None => None,
@@ -244,14 +239,21 @@ fn last_outcome(history :: List[Step]) -> Option[tool.ToolOutcome] {
 }
 
 fn steps_taken(history :: List[Step]) -> Int {
-  list.fold(history, 0, fn (acc :: Int, _s :: Step) -> Int { acc + 1 })
+  list.fold(history, 0, fn (acc :: Int, _s :: Step) -> Int {
+    acc + 1
+  })
 }
 
 fn submitted_symbols(history :: List[Step]) -> List[Str] {
   list.fold(history, [], fn (acc :: List[Str], s :: Step) -> List[Str] {
     match s.tool {
-      SubmitOrder(p) => if s.outcome.ok { list.concat(acc, [p.symbol]) } else { acc },
+      SubmitOrder(p) => if s.outcome.ok {
+        list.concat(acc, [p.symbol])
+      } else {
+        acc
+      },
       _ => acc,
     }
   })
 }
+

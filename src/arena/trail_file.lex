@@ -11,8 +11,11 @@
 # [fs_write] via std.io.
 
 import "std.str" as str
+
 import "std.int" as int
+
 import "std.list" as list
+
 import "std.json" as json
 
 # A parsed trail-file line. Mirrors lex-trail's Event with parent
@@ -20,7 +23,6 @@ import "std.json" as json
 type Line = { id :: Str, kind :: Str, parent :: Str, payload_json :: Str, ts_ms :: Int }
 
 # ---- Export ----------------------------------------------------------
-
 fn esc(s :: Str) -> Str {
   str.replace(str.replace(s, "\\", "\\\\"), "\"", "\\\"")
 }
@@ -34,7 +36,6 @@ fn to_jsonl(lines :: List[Line]) -> Str {
 }
 
 # ---- Parse -----------------------------------------------------------
-
 fn parse_line(s :: Str) -> Result[Line, Str] {
   let parsed :: Result[Line, Str] := json.parse(s)
   parsed
@@ -42,7 +43,9 @@ fn parse_line(s :: Str) -> Result[Line, Str] {
 
 fn parse_jsonl(content :: Str) -> Result[List[Line], Str] {
   let raw_lines := str.split(content, "\n")
-  let non_empty := list.filter(raw_lines, fn (s :: Str) -> Bool { not str.is_empty(str.trim(s)) })
+  let non_empty := list.filter(raw_lines, fn (s :: Str) -> Bool {
+    not str.is_empty(str.trim(s))
+  })
   list.fold(non_empty, Ok([]), fn (acc :: Result[List[Line], Str], s :: Str) -> Result[List[Line], Str] {
     match acc {
       Err(e) => Err(e),
@@ -53,3 +56,4 @@ fn parse_jsonl(content :: Str) -> Result[List[Line], Str] {
     }
   })
 }
+

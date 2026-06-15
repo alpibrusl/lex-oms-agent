@@ -9,22 +9,35 @@
 #     tests/test_arena.lex arena_main
 
 import "std.str" as str
+
 import "std.int" as int
+
 import "std.list" as list
 
 import "lex-money/src/decimal" as d
+
 import "lex-positions/src/position" as pos
 
 import "../src/agent" as agent
+
 import "../src/tool" as tool
+
 import "../src/arena/scenario" as scenario
+
 import "../src/arena/trail_file" as tf
+
 import "../src/arena/episode" as episode
+
 import "../src/arena/verify" as verify
+
 import "../src/arena/fills" as fills
 
 fn check(name :: Str, cond :: Bool) -> Result[Unit, Str] {
-  if cond { Ok(()) } else { Err(name) }
+  if cond {
+    Ok(())
+  } else {
+    Err(name)
+  }
 }
 
 fn test_scenario() -> scenario.Scenario {
@@ -33,9 +46,15 @@ fn test_scenario() -> scenario.Scenario {
 
 fn strategy(history :: List[agent.Step]) -> tool.Tool {
   let n := agent.steps_taken(history)
-  if n == 0 { Observe(Blotter) }
-  else { if n == 1 { SubmitOrder({ cl_ord_id: "T-001", symbol: "AAPL", side: "buy", quantity: 100 }) }
-  else { AgentDone("done") } }
+  if n == 0 {
+    Observe(Blotter)
+  } else {
+    if n == 1 {
+      SubmitOrder({ cl_ord_id: "T-001", symbol: "AAPL", side: "buy", quantity: 100 })
+    } else {
+      AgentDone("done")
+    }
+  }
 }
 
 # Round-trip: episode → jsonl → parse → decisions → replay → identical.
@@ -128,14 +147,24 @@ fn t_pnl_from_trail() -> [sql, time, crypto, fs_write] Result[Unit, Str] {
 # OMS rejects it (and logs trade.order.rejected); it must not fill.
 fn breach_strategy(history :: List[agent.Step]) -> tool.Tool {
   let n := agent.steps_taken(history)
-  if n == 0 { Observe(Blotter) }
-  else { if n == 1 { SubmitOrder({ cl_ord_id: "BIG-1", symbol: "AAPL", side: "buy", quantity: 600000 }) }
-  else { AgentDone("notional breach") } }
+  if n == 0 {
+    Observe(Blotter)
+  } else {
+    if n == 1 {
+      SubmitOrder({ cl_ord_id: "BIG-1", symbol: "AAPL", side: "buy", quantity: 600000 })
+    } else {
+      AgentDone("notional breach")
+    }
+  }
 }
 
 fn count_kind(lines :: List[tf.Line], k :: Str) -> Int {
   list.fold(lines, 0, fn (acc :: Int, l :: tf.Line) -> Int {
-    if l.kind == k { acc + 1 } else { acc }
+    if l.kind == k {
+      acc + 1
+    } else {
+      acc
+    }
   })
 }
 
@@ -155,7 +184,6 @@ fn t_notional_breach_rejected() -> [sql, time, crypto, fs_write] Result[Unit, St
 }
 
 # ---- cost model (spread + slippage) ---------------------------------
-
 fn cost_scenario(spread :: Int, impact :: Int, lot :: Int) -> scenario.Scenario {
   { version: "2", name: "cost-ep", seed: 7, episode_start_ms: 1700000000000, tick_ms: 1000, max_steps: 20, instruments: [{ symbol: "AAPL", prices: "100.00,101.50,103.00" }], cost: { spread_bps: spread, impact_bps: impact, lot: lot, fee_bps: 0, fee_per_unit_cents: 0, max_fill: 0 } }
 }
@@ -168,7 +196,6 @@ fn buy_fill(q :: Int) -> fills.Fill {
 # → pnl = 100*(103-102.515) = 48.50 (vs 150.00 frictionless).
 fn t_spread_cost() -> Result[Unit, Str] {
   let pnl := fills.fill_pnl(cost_scenario(100, 0, 1), buy_fill(100))
-  # value 48.50 (compare by value; the decimal scale may carry extra zeros)
   if d.compare(pnl, d.decimal(485, -1)) == 0 {
     check("spread below frictionless", d.lt(pnl, fills.fill_pnl(cost_scenario(0, 0, 1), buy_fill(100))))
   } else {
@@ -182,12 +209,10 @@ fn t_slippage_convex() -> Result[Unit, Str] {
   let sc := cost_scenario(0, 10, 100)
   let small := fills.fill_pnl(sc, buy_fill(100))
   let big := fills.fill_pnl(sc, buy_fill(1000))
-  # per-share(small) > per-share(big)  <=>  small*10 > big
   check("larger order fills worse per share", d.gt(d.mul(small, d.from_int(10)), big))
 }
 
 # ---- commissions ----------------------------------------------------
-
 fn fee_scenario(fee_bps :: Int, fee_unit :: Int) -> scenario.Scenario {
   { version: "2", name: "fee-ep", seed: 7, episode_start_ms: 1700000000000, tick_ms: 1000, max_steps: 20, instruments: [{ symbol: "AAPL", prices: "100.00,101.50,103.00" }], cost: { spread_bps: 0, impact_bps: 0, lot: 1, fee_bps: fee_bps, fee_per_unit_cents: fee_unit, max_fill: 0 } }
 }
@@ -205,7 +230,6 @@ fn t_fee_cost() -> Result[Unit, Str] {
 }
 
 # ---- partial fills --------------------------------------------------
-
 fn liquidity_scenario(max_fill :: Int) -> scenario.Scenario {
   { version: "2", name: "liq-ep", seed: 7, episode_start_ms: 1700000000000, tick_ms: 1000, max_steps: 20, instruments: [{ symbol: "AAPL", prices: "100.00,101.50,103.00" }], cost: { spread_bps: 0, impact_bps: 0, lot: 1, fee_bps: 0, fee_per_unit_cents: 0, max_fill: max_fill } }
 }
@@ -231,6 +255,7 @@ fn count_failures(results :: List[Result[Unit, Str]]) -> Int {
   })
 }
 
-fn arena_main() -> [sql, time, crypto, fs_write] Int {
+fn run_all() -> [sql, time, crypto, fs_write] Int {
   count_failures([t_verified_roundtrip(), t_tampered_rejected(), t_scenario_id_content_addressed(), t_pnl_from_trail(), t_notional_breach_rejected(), t_spread_cost(), t_slippage_convex(), t_fee_cost(), t_partial_fill()])
 }
+

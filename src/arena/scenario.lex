@@ -32,15 +32,23 @@
 # Effects: none. All functions are pure.
 
 import "std.int" as int
+
 import "std.str" as str
+
 import "std.list" as list
+
 import "std.json" as json
+
 import "std.crypto" as crypto
 
 import "lex-money/src/decimal" as d
+
 import "lex-positions/src/position" as pos
+
 import "lex-orm/src/connection" as conn
+
 import "lex-orm/src/error" as dbe
+
 import "lex-oms/src/marks" as marks
 
 import "../agent" as agent
@@ -55,16 +63,7 @@ type Instrument = { symbol :: Str, prices :: Str }
 # zero = frictionless, uncapped, no-commission fills.
 type CostModel = { spread_bps :: Int, impact_bps :: Int, lot :: Int, fee_bps :: Int, fee_per_unit_cents :: Int, max_fill :: Int }
 
-type Scenario = {
-  version          :: Str,
-  name             :: Str,
-  seed             :: Int,
-  episode_start_ms :: Int,
-  tick_ms          :: Int,
-  max_steps        :: Int,
-  instruments      :: List[Instrument],
-  cost             :: CostModel,
-}
+type Scenario = { version :: Str, name :: Str, seed :: Int, episode_start_ms :: Int, tick_ms :: Int, max_steps :: Int, instruments :: List[Instrument], cost :: CostModel }
 
 fn cost_active(c :: CostModel) -> Bool {
   c.spread_bps > 0 or c.impact_bps > 0 or c.fee_bps > 0 or c.fee_per_unit_cents > 0 or c.max_fill > 0
@@ -88,9 +87,21 @@ fn inject_field(s :: Str, kv :: Str) -> Str {
 
 # Parse scenario JSON. Field mismatch surfaces as Err.
 fn from_json(s :: Str) -> Result[Scenario, Str] {
-  let with_cost := if str.contains(s, "\"cost\"") { s } else { inject_default_cost(s) }
-  let with_fees := if str.contains(with_cost, "\"fee_bps\"") { with_cost } else { inject_field(with_cost, "\"fee_bps\":0,\"fee_per_unit_cents\":0") }
-  let with_maxfill := if str.contains(with_fees, "\"max_fill\"") { with_fees } else { inject_field(with_fees, "\"max_fill\":0") }
+  let with_cost := if str.contains(s, "\"cost\"") {
+    s
+  } else {
+    inject_default_cost(s)
+  }
+  let with_fees := if str.contains(with_cost, "\"fee_bps\"") {
+    with_cost
+  } else {
+    inject_field(with_cost, "\"fee_bps\":0,\"fee_per_unit_cents\":0")
+  }
+  let with_maxfill := if str.contains(with_fees, "\"max_fill\"") {
+    with_fees
+  } else {
+    inject_field(with_fees, "\"max_fill\":0")
+  }
   let parsed :: Result[Scenario, Str] := json.parse(with_maxfill)
   parsed
 }
@@ -99,11 +110,12 @@ fn from_json(s :: Str) -> Result[Scenario, Str] {
 # (same convention as lex-trail's event id). The cost block is appended ONLY
 # when active, so frictionless scenarios keep their original scenario_id.
 fn canonical(sc :: Scenario) -> Str {
-  let inst := str.join(list.map(sc.instruments, fn (i :: Instrument) -> Str { i.symbol + "=" + i.prices }), ";")
+  let inst := str.join(list.map(sc.instruments, fn (i :: Instrument) -> Str {
+    i.symbol + "=" + i.prices
+  }), ";")
   let base := str.join([sc.version, sc.name, int.to_str(sc.seed), int.to_str(sc.episode_start_ms), int.to_str(sc.tick_ms), int.to_str(sc.max_steps), inst], " ")
   if cost_active(sc.cost) {
-    base + " cost=" + int.to_str(sc.cost.spread_bps) + "/" + int.to_str(sc.cost.impact_bps) + "/" + int.to_str(sc.cost.lot)
-      + "/" + int.to_str(sc.cost.fee_bps) + "/" + int.to_str(sc.cost.fee_per_unit_cents) + "/" + int.to_str(sc.cost.max_fill)
+    base + " cost=" + int.to_str(sc.cost.spread_bps) + "/" + int.to_str(sc.cost.impact_bps) + "/" + int.to_str(sc.cost.lot) + "/" + int.to_str(sc.cost.fee_bps) + "/" + int.to_str(sc.cost.fee_per_unit_cents) + "/" + int.to_str(sc.cost.max_fill)
   } else {
     base
   }
@@ -120,20 +132,35 @@ fn clock(sc :: Scenario) -> agent.Clock {
 }
 
 # ---- Price script lookups ---------------------------------------------
-
 fn price_list(sc :: Scenario, symbol :: Str) -> List[Str] {
   let found := list.fold(sc.instruments, "", fn (acc :: Str, i :: Instrument) -> Str {
-    if i.symbol == symbol { i.prices } else { acc }
+    if i.symbol == symbol {
+      i.prices
+    } else {
+      acc
+    }
   })
-  if str.is_empty(found) { [] } else { str.split(found, ",") }
+  if str.is_empty(found) {
+    []
+  } else {
+    str.split(found, ",")
+  }
 }
 
 fn nth_or_last(xs :: List[Str], n :: Int) -> Str {
   let ln := list.len(xs)
-  let idx := if n < ln { n } else { ln - 1 }
+  let idx := if n < ln {
+    n
+  } else {
+    ln - 1
+  }
   list.fold(list.enumerate(xs), "", fn (acc :: Str, pair :: (Int, Str)) -> Str {
     match pair {
-      (i, s) => if i == idx { s } else { acc },
+      (i, s) => if i == idx {
+        s
+      } else {
+        acc
+      },
     }
   })
 }
@@ -188,3 +215,4 @@ fn seed_marks(db :: conn.ConnDb, sc :: Scenario) -> [sql] Result[Unit, Str] {
     }
   })
 }
+

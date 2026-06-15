@@ -21,18 +21,25 @@
 #           examples/demo.lex main
 
 import "std.io" as io
+
 import "std.list" as list
+
 import "std.str" as str
+
 import "std.int" as int
+
 import "std.map" as map
 
 import "lex-orm/src/connection" as conn
+
 import "lex-orm/src/error" as dbe
+
 import "lex-trail/src/log" as trail_log
 
 import "lex-oms/src/server" as srv
 
 import "../src/tool" as tool
+
 import "../src/agent" as agent
 
 # ---- Scripted decision function -------------------------------------
@@ -41,7 +48,6 @@ import "../src/agent" as agent
 #   fn llm_decide(history) -> Tool { lex_llm.next_action(api_key, goal, history) }
 #
 # The scripted version below is deterministic and requires no API key.
-
 fn scripted_decide(history :: List[agent.Step]) -> tool.Tool {
   let n := agent.steps_taken(history)
   if n == 0 {
@@ -75,7 +81,6 @@ fn scripted_decide(history :: List[agent.Step]) -> tool.Tool {
 # Injects ACK + full fill execution reports for each accepted order.
 # In production these arrive from the exchange; here we drive them
 # directly to populate the position book.
-
 fn post_ctx(body :: Str) -> { method :: Str, path :: Str, query :: Str, body :: Str, path_params :: Map[Str, Str], headers :: Map[Str, Str], state :: Map[Str, Str] } {
   { method: "POST", path: "/", query: "", body: body, path_params: map.new(), headers: map.from_list([("content-type", "application/json")]), state: map.new() }
 }
@@ -103,48 +108,47 @@ fn simulate_fills(db :: conn.ConnDb) -> [sql, time, crypto] Unit {
 }
 
 # ---- Demo runner ----------------------------------------------------
-
 fn print_section(title :: Str) -> [io] Unit {
   let __h := io.print("")
   io.print("=== " + title + " ===")
 }
 
 fn print_step(s :: agent.Step) -> [io] Unit {
-  let status_s := if s.outcome.status == 0 { "done" } else { int.to_str(s.outcome.status) }
-  io.print("  step " + int.to_str(s.step) + "  " + tool.tool_name(s.tool) + "  →  " + status_s + (if s.outcome.ok { " ✓" } else { " ✗" }))
+  let status_s := if s.outcome.status == 0 {
+    "done"
+  } else {
+    int.to_str(s.outcome.status)
+  }
+  io.print("  step " + int.to_str(s.step) + "  " + tool.tool_name(s.tool) + "  →  " + status_s + if s.outcome.ok {
+    " ✓"
+  } else {
+    " ✗"
+  })
 }
 
 fn run_demo(db :: conn.ConnDb, log :: trail_log.Log) -> [sql, time, io, crypto] Unit {
   let __init := srv.init_db(db)
   let ctx := { db: db, log: log, max_steps: 20, clock: ClockWall }
-
   let __h1 := print_section("AGENT LOOP  (scripted — swap decide fn for real LLM)")
   let result := agent.run(ctx, scripted_decide)
-
   let __h2 := print_section("STEP LOG")
-  # (trail events emitted live; print summary from agent loop result)
   let result_line := match result {
     GoalMet(reason) => "GoalMet: " + reason,
     StepLimitReached(n) => "StepLimitReached at step " + int.to_str(n),
   }
   let __rl := io.print(result_line)
-
   let __h3 := print_section("EXCHANGE FILLS  (simulating exchange execution reports)")
   let __fx := simulate_fills(db)
   let __ok := io.print("fills injected for AGT-001 AAPL, AGT-002 MSFT, AGT-003 NVDA")
-
   let __h4 := print_section("GET /blotter")
   let blotter := srv.get_blotter(db, get_ctx())
   let __b := io.print(blotter.body)
-
   let __h5 := print_section("GET /positions")
   let positions := srv.get_positions(db, get_ctx())
   let __p := io.print(positions.body)
-
   let __h6 := print_section("GET /risk")
   let risk := srv.get_risk(db, get_ctx())
   let __r := io.print(risk.body)
-
   let __h7 := print_section("GET /audit  (agent + trade trail events)")
   let audit := srv.get_audit(log, get_ctx())
   io.print(audit.body)
@@ -160,3 +164,4 @@ fn main() -> [sql, time, io, fs_write, concurrent, net, crypto, random, fs_read]
     },
   }
 }
+

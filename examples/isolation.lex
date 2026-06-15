@@ -27,22 +27,27 @@
 #   lex run --allow-effects concurrent,crypto,fs_read,fs_write,io,net,proc,random,sql,time \
 #           examples/isolation.lex main
 
-import "std.io"  as io
+import "std.io" as io
+
 import "std.int" as int
+
 import "std.str" as str
+
 import "std.map" as map
 
 import "lex-orm/src/connection" as conn
-import "lex-orm/src/error"      as dbe
-import "lex-trail/src/log"      as trail_log
+
+import "lex-orm/src/error" as dbe
+
+import "lex-trail/src/log" as trail_log
 
 import "lex-oms/src/server" as srv
 
 import "../src/agent" as agent
-import "../src/tool"  as tool
+
+import "../src/tool" as tool
 
 # ---- HTTP context helpers -----------------------------------------------
-
 fn post_ctx(body :: Str) -> { method :: Str, path :: Str, query :: Str, body :: Str, path_params :: Map[Str, Str], headers :: Map[Str, Str], state :: Map[Str, Str] } {
   { method: "POST", path: "/", query: "", body: body, path_params: map.new(), headers: map.from_list([("content-type", "application/json")]), state: map.new() }
 }
@@ -52,7 +57,6 @@ fn get_ctx() -> { method :: Str, path :: Str, query :: Str, body :: Str, path_pa
 }
 
 # ---- Fill helpers -------------------------------------------------------
-
 fn ack_json(exec_id :: Str, order_id :: Str, cl_ord_id :: Str, symbol :: Str, side :: Str, qty :: Int) -> Str {
   "{\"exec_id\":\"" + exec_id + "\",\"order_id\":\"" + order_id + "\",\"cl_ord_id\":\"" + cl_ord_id + "\",\"exec_type\":\"0\",\"ord_status\":\"0\",\"symbol\":\"" + symbol + "\",\"side\":\"" + side + "\",\"account\":\"\",\"order_qty\":\"" + int.to_str(qty) + "\",\"cum_qty\":\"0\",\"leaves_qty\":\"" + int.to_str(qty) + "\",\"avg_px\":\"0\",\"last_px\":\"\",\"last_qty\":\"\",\"text\":\"\"}"
 }
@@ -68,7 +72,6 @@ fn fill_order(db :: conn.ConnDb, tag :: Str, cl_ord_id :: Str, sym :: Str, qty :
 }
 
 # ---- Seed portfolios ----------------------------------------------------
-
 fn seed_alpha(db :: conn.ConnDb) -> [sql, time, crypto] Unit {
   let __1 := fill_order(db, "A1", "ALPHA-AAPL", "AAPL", 500, "175.00")
   let __2 := fill_order(db, "A2", "ALPHA-MSFT", "MSFT", 200, "420.00")
@@ -87,7 +90,6 @@ fn seed_beta(db :: conn.ConnDb) -> [sql, time, crypto] Unit {
 # The decide function only inspects history and returns a Tool value.
 # Actual database access happens inside agent.run, which uses the ConnDb
 # from the AgentCtx. An agent can only see the database wired into its context.
-
 fn snapshot_decide(history :: List[agent.Step]) -> tool.Tool {
   if agent.steps_taken(history) == 0 {
     Observe(Positions)
@@ -97,43 +99,25 @@ fn snapshot_decide(history :: List[agent.Step]) -> tool.Tool {
 }
 
 # ---- Print section ------------------------------------------------------
-
 fn section(title :: Str) -> [io] Unit {
   let __nl := io.print("")
   io.print("=== " + title + " ===")
 }
 
 # ---- Demo ---------------------------------------------------------------
-
 fn run_demo(db_alpha :: conn.ConnDb, db_beta :: conn.ConnDb, log :: trail_log.Log) -> [sql, time, crypto, io] Unit {
   let __init_a := srv.init_db(db_alpha)
   let __init_b := srv.init_db(db_beta)
-
-  # ── Seed each client's isolated database ─────────────────────────
   let __sa := seed_alpha(db_alpha)
   let __sb := seed_beta(db_beta)
-
-  # ── Wire each agent to its own database — and only its own ───────
-  #
-  # This is the structural isolation point. alpha_ctx holds db_alpha;
-  # beta_ctx holds db_beta. Neither context is ever given the other's
-  # handle. agent.run dispatches all tool calls through the ConnDb in
-  # the context — so alpha_agent can only query db_alpha, period.
-  #
   let alpha_ctx := { db: db_alpha, log: log, max_steps: 2, clock: ClockWall }
-  let beta_ctx  := { db: db_beta,  log: log, max_steps: 2, clock: ClockWall }
-
+  let beta_ctx := { db: db_beta, log: log, max_steps: 2, clock: ClockWall }
   let __ra := agent.run(alpha_ctx, snapshot_decide)
-  let __rb := agent.run(beta_ctx,  snapshot_decide)
-
-  # ── Print each client's view of the world ────────────────────────
+  let __rb := agent.run(beta_ctx, snapshot_decide)
   let __h1 := section("CLIENT_ALPHA positions  (reads db_alpha)")
-  let __pa := io.print((srv.get_positions(db_alpha, get_ctx())).body)
-
+  let __pa := io.print(srv.get_positions(db_alpha, get_ctx()).body)
   let __h2 := section("CLIENT_BETA positions  (reads db_beta)")
-  let __pb := io.print((srv.get_positions(db_beta, get_ctx())).body)
-
-  # ── The proof ────────────────────────────────────────────────────
+  let __pb := io.print(srv.get_positions(db_beta, get_ctx()).body)
   let __h3 := section("CHINESE WALL PROOF")
   let __p1 := io.print("  ALPHA sees AAPL: 500 shares")
   let __p2 := io.print("  BETA  sees AAPL: 100 shares")
@@ -149,13 +133,14 @@ fn run_demo(db_alpha :: conn.ConnDb, db_beta :: conn.ConnDb, log :: trail_log.Lo
 
 fn main() -> [sql, time, crypto, io, random, net, concurrent, fs_write, fs_read, proc] Unit {
   match conn.connect_sqlite(":memory:") {
-    Err(e)       => io.print("db error: " + dbe.message(e)),
+    Err(e) => io.print("db error: " + dbe.message(e)),
     Ok(db_alpha) => match conn.connect_sqlite(":memory:") {
-      Err(e)      => io.print("db error: " + dbe.message(e)),
+      Err(e) => io.print("db error: " + dbe.message(e)),
       Ok(db_beta) => match trail_log.open_memory() {
-        Err(m)  => io.print("trail error: " + m),
+        Err(m) => io.print("trail error: " + m),
         Ok(log) => run_demo(db_alpha, db_beta, log),
       },
     },
   }
 }
+
