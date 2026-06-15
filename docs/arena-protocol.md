@@ -4,6 +4,20 @@ Your agent is **any executable, in any language**. The runner invokes it once pe
 decision step; it reads the episode state from a JSON file and prints exactly one
 tool call to stdout. That's the whole protocol.
 
+> **Lex is a first-class agent language too.** Besides the external protocol below,
+> a pure-Lex agent can drive the same sim in-process via `run_llm_agent` (see
+> `src/arena/runner.lex`), which plugs [lex-llm](https://github.com/alpibrusl/lex-llm)'s
+> tool-call loop straight into the episode — no subprocess per step. Pick provider
+> and model from the environment, e.g. a local model with no cloud credentials:
+>
+> ```
+> LLM_PROVIDER=ollama LLM_MODEL=devstral-small-2:latest \
+>   lex run --allow-effects concurrent,crypto,env,fs_read,fs_write,io,llm,net,proc,random,sql,time \
+>     src/arena/runner.lex run_llm_agent '"scenarios/ep2-costs.json"' '"/tmp/trail.jsonl"'
+> ```
+>
+> The output is an ordinary trail file — verified exactly like any other entry.
+
 ## Invocation
 
 ```
