@@ -10,13 +10,12 @@ jobs:
       - name: Install Lex
         run: |
           set -euo pipefail
-          # Pinned to 0.9.9: lex 0.9.10's `lex pkg install` regressed — its
-          # stricter flat-layout check rejects lex-trail's `path = "."` self-dep
-          # when lex-trail is pulled as a git dep ("flat layout can only hold one
-          # copy"), breaking install for every lex-trail consumer. 0.9.7/0.9.9
-          # install cleanly; the code only requires lex 0.9.7 (see lex.toml).
-          # Bump back to >=0.9.11 once the installer fix ships (alpibrusl/lex-lang).
-          V=0.9.9; T=x86_64-unknown-linux-gnu
+          # lex 0.9.10's stricter flat-layout check once rejected lex-trail's
+          # `path = "."` self-dep when pulled as a git dep ("flat layout can only
+          # hold one copy"). Resolved upstream by lex-trail#11 (self-dep removed,
+          # in-tree imports use relative paths), so 0.9.10 `lex pkg install` now
+          # resolves the full closure cleanly. The code requires lex 0.9.7 (lex.toml).
+          V=0.9.10; T=x86_64-unknown-linux-gnu
           curl -fsSL "https://github.com/alpibrusl/lex-lang/releases/download/v$V/lex-v$V-$T.tar.gz" -o /tmp/lex.tgz
           tar -xzf /tmp/lex.tgz -C /tmp
           echo "/tmp/lex-v$V-$T" >> "$GITHUB_PATH"
