@@ -62,11 +62,19 @@ import "lex-web/router" as router
 
 import "lex-web/middleware" as mw
 
+import "lex-web/ctx" as ctx
+
+import "lex-web/response" as resp
+
+import "lex-web/body" as wbody
+
 import "lex-agent/src/agent_card" as card
 
 import "lex-agent/src/server" as a2a
 
 import "lex-agent/src/mount" as mount
+
+import "lex-mcp/src/server" as mcp_server
 
 import "lex-agent/src/message" as msg
 
@@ -182,10 +190,30 @@ fn make_agent(db :: conn.ConnDb, log :: trail_log.Log, provider :: prov.Provider
 }
 
 # ---- HTTP server ---------------------------------------------------
+# MCP route. The same skill (`execute_trade_goal`) exposed over MCP at POST /mcp,
+# dispatched through `mcp_server.handle_message` — which routes tools/call back to
+# the SAME `a2a.dispatch_request`. So the A2A AgentCard and MCP tools/list both
+# derive from the one skill, and middleware (body-limit, request-id, gzip, logs)
+# applies to both transports because they share this router.
+# (We compose on the router instead of `lex-mcp`'s `serve_both` precisely to keep
+# that middleware stack; serve_both is the std.net-only path for the simple case.)
+fn mcp_route(agent :: a2a.AgentDef) -> (ctx.Ctx) -> [io, time, crypto, random, sql, fs_read, fs_write, net, concurrent, llm, proc] resp.Response {
+  fn (c :: ctx.Ctx) -> [io, time, crypto, random, sql, fs_read, fs_write, net, concurrent, llm, proc] resp.Response {
+    let out := mcp_server.handle_message(agent, wbody.raw_body(c))
+    if str.is_empty(out) {
+      { status: 202, body: "", headers: map.from_list([("content-type", "application/json")]) }
+    } else {
+      resp.json(out)
+    }
+  }
+}
+
 fn app(db :: conn.ConnDb, log :: trail_log.Log, provider :: prov.Provider, model :: prov.ModelRef) -> router.Router {
+  let agent := make_agent(db, log, provider, model)
   let base := router.new()
   let with_mw := router.use_mw(router.use_mw(router.use_mw(router.use_mw(base, mw.body_limit(1048576)), mw.request_id()), mw.gzip(1024)), mw.logger())
-  mount.mount(with_mw, make_agent(db, log, provider, model))
+  let with_a2a := mount.mount(with_mw, agent)
+  router.route_effectful(with_a2a, "POST", "/mcp", mcp_route(agent))
 }
 
 fn handle(db :: conn.ConnDb, log :: trail_log.Log, provider :: prov.Provider, model :: prov.ModelRef, req :: Request) -> [io, time, crypto, random, sql, fs_read, fs_write, net, concurrent, llm, proc] Response {
@@ -217,8 +245,9 @@ fn main() -> [net, io, time, crypto, random, sql, fs_read, fs_write, concurrent,
       },
       Ok(log) => {
         let __init := srv.init_db(db)
-        let __msg1 := io.print("lex-oms-agent A2A server listening on :4041")
+        let __msg1 := io.print("lex-oms-agent listening on :4041 (A2A + MCP)")
         let __msg2 := io.print("AgentCard: http://localhost:4041/.well-known/agent.json")
+        let __msg3 := io.print("MCP tools: POST http://localhost:4041/mcp")
         net.serve_fn(4041, fn (req :: Request) -> [io, time, crypto, random, sql, fs_read, fs_write, net, concurrent, llm, proc] Response {
           handle(db, log, provider, model, req)
         })

@@ -21,8 +21,28 @@ jobs:
           echo "/tmp/lex-v$V-$T" >> "$GITHUB_PATH"
       - run: lex pkg install
       - name: check
-        run: for f in $(find src -name '*.lex'); do lex check "$f" >/dev/null; done
+        run: |
+          set -euo pipefail
+          for f in $(find src -name '*.lex'); do lex check "$f" >/dev/null; done
+          # Examples too. The adversarial demos are MEANT to be rejected by the
+          # effect/isolation checker ("WILL NOT COMPILE. That is the point."), so
+          # a file tagged that way MUST fail; every other example MUST pass.
+          for f in $(find examples -name '*.lex'); do
+            if grep -q "WILL NOT COMPILE" "$f"; then
+              if lex check "$f" >/dev/null 2>&1; then echo "FAIL: $f is tagged WILL NOT COMPILE but type-checked"; exit 1; fi
+              echo "ok (expected-reject): $f"
+            else
+              lex check "$f" >/dev/null || { echo "FAIL: $f"; exit 1; }
+              echo "ok: $f"
+            fi
+          done
       - name: fmt
         run: lex fmt --check src tests
       - name: test
         run: lex test --allow-effects io,time,crypto,random,sql,fs_read,fs_write,net,concurrent,llm,proc tests/
+      - name: ACLI surface (introspect is valid JSON; skill emits frontmatter)
+        run: |
+          set -euo pipefail
+          python3 -c "import json,sys; d=json.load(sys.stdin); names=[s['name'] for s in d['subcommands']]; assert names==['episodes','verify'], names; print('introspect ok:', names)" < <(cli/arena introspect --output json)
+          cli/arena skill | head -1 | grep -q '^---$' || { echo "FAIL: skill must emit SKILL.md frontmatter"; exit 1; }
+          echo "ACLI GREEN"
