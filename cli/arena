@@ -33,12 +33,73 @@ run_fn() {
   exec "$LEX" run --allow-effects "$EFFECTS" "$ENTRY" "$fn" ${quoted[@]+"${quoted[@]}"}
 }
 
+# Like run_fn, but emits clean output: `lex run` prints the function's returned
+# Int (the exit code) as a trailing line; we strip it and re-exit with it, so
+# the stdout an ACLI/acli-mcp caller parses is just the command's JSON. Used for
+# the introspect-exposed commands (episodes, verify) — which print a result and
+# don't stream, so buffering them is fine.
+run_fn_clean() {
+  local fn="$1"; shift
+  local quoted=()
+  for a in "$@"; do quoted+=("$(jq_str "$a")"); done
+  local out rc last
+  out="$("$LEX" run --allow-effects "$EFFECTS" "$ENTRY" "$fn" ${quoted[@]+"${quoted[@]}"})" && rc=0 || rc=$?
+  last="$(printf '%s\n' "$out" | tail -n1)"
+  if printf '%s' "$last" | grep -Eq '^[0-9]+$'; then
+    printf '%s\n' "$out" | sed '$d'
+    exit "$last"
+  fi
+  printf '%s\n' "$out"
+  exit "$rc"
+}
+
 cmd="${1:-help}"; shift || true
+
+# ACLI agent surface (alpibrusl/acli): `introspect` lets acli-mcp turn this
+# binary into MCP tools (ACLI_BIN=arena), `skill` emits the agentskills.io guide.
+# These run before flag parsing — they take no flags.
+case "$cmd" in
+  introspect)
+    # Only the deterministic, no-auth, no-spawn commands are exposed as agent
+    # tools. run/submit/publish/login stay human CLI commands — they spawn
+    # external programs or upload with stored credentials, which don't belong
+    # on an unattended MCP tool surface.
+    cat <<'JSON'
+{
+  "name": "arena",
+  "version": "0.1.0",
+  "description": "Lex-native finance arena: list episodes and replay-verify recorded trails.",
+  "flags": [],
+  "subcommands": [
+    {
+      "name": "episodes",
+      "description": "List the available arena episodes (scenarios).",
+      "idempotent": true,
+      "flags": [],
+      "positionals": []
+    },
+    {
+      "name": "verify",
+      "description": "Replay a recorded trail through the episode's deterministic rules and recompute the authoritative outcome. Prints a JSON verdict; no LLM, no network.",
+      "idempotent": true,
+      "flags": [ { "name": "episode", "short": "e", "description": "Episode id (e.g. ep1-baseline).", "type": "str", "default": "" } ],
+      "positionals": [ { "name": "trail", "description": "Path to the trail JSONL file to verify.", "required": true } ]
+    }
+  ]
+}
+JSON
+    exit 0
+    ;;
+  skill)
+    exec cat "$HERE/SKILL.md"
+    ;;
+esac
 
 # Defaults
 EP=""; AGENT=""; OUT=""; NAME=""; DIV="open"; MODEL=""; API=""; TOKEN=""; TRAIL=""
 
 # Parse flags + a single trailing positional (the trail file, for verify/submit).
+# `--output <fmt>` is the ACLI flag acli-mcp injects; we always emit JSON, so drop it.
 while [[ $# -gt 0 ]]; do
   case "$1" in
     -e|--episode) EP="$2"; shift 2;;
@@ -49,15 +110,17 @@ while [[ $# -gt 0 ]]; do
     --model)      MODEL="$2"; shift 2;;
     --api)        API="$2"; shift 2;;
     --token)      TOKEN="$2"; shift 2;;
+    --output)     shift 2;;
+    --output=*)   shift;;
     -*)           echo "unknown flag: $1" >&2; exit 2;;
     *)            TRAIL="$1"; shift;;
   esac
 done
 
 case "$cmd" in
-  episodes) run_fn episodes ;;
+  episodes) run_fn_clean episodes ;;
   run)      run_fn run_cmd "$EP" "$AGENT" "${OUT:-$EP-trail.jsonl}" ;;
-  verify)   run_fn verify_cmd "$EP" "$TRAIL" ;;
+  verify)   run_fn_clean verify_cmd "$EP" "$TRAIL" ;;
   login)    run_fn login "$API" "$TOKEN" ;;
   submit)   run_fn submit "$EP" "$TRAIL" "$NAME" "$DIV" "$MODEL" ;;
   publish)  run_fn publish "$EP" "$AGENT" "$NAME" "$DIV" "$MODEL" ;;
