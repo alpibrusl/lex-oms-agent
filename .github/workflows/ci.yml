@@ -15,7 +15,7 @@ jobs:
           # hold one copy"). Resolved upstream by lex-trail#11 (self-dep removed,
           # in-tree imports use relative paths), so 0.9.10 `lex pkg install` now
           # resolves the full closure cleanly. The code requires lex 0.9.7 (lex.toml).
-          V=0.9.12; T=x86_64-unknown-linux-gnu
+          V=0.10.0; T=x86_64-unknown-linux-gnu
           curl -fsSL "https://github.com/alpibrusl/lex-lang/releases/download/v$V/lex-v$V-$T.tar.gz" -o /tmp/lex.tgz
           tar -xzf /tmp/lex.tgz -C /tmp
           echo "/tmp/lex-v$V-$T" >> "$GITHUB_PATH"
