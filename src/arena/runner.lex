@@ -29,7 +29,7 @@ import "std.list" as list
 
 import "std.json" as json
 
-import "std.proc" as proc
+import "std.process" as process
 
 import "lex-orm/src/connection" as conn
 
@@ -96,7 +96,7 @@ fn external_decide(sc :: scenario.Scenario, agent_cmd :: Str, req_path :: Str) -
   fn (history :: List[agent.Step]) -> [io, fs_read, fs_write, proc] tool.Tool {
     match io.write(req_path, request_json(sc, history)) {
       Err(e) => AgentDone("agent error: cannot write request: " + e),
-      Ok(_) => match proc.spawn("bash", ["-c", agent_cmd + " " + req_path]) {
+      Ok(_) => match process.run("bash", ["-c", agent_cmd + " " + req_path]) {
         Err(e) => AgentDone("agent error: spawn failed: " + e),
         Ok(r) => {
           let out := str.trim(r.stdout)
