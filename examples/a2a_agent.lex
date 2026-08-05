@@ -90,6 +90,18 @@ import "lex-llm/src/providers/vertex" as vertex
 
 import "../src/llm_decide" as llm_decide
 
+import "std.json" as json
+
+import "std.iter" as iter
+
+import "std.crypto" as crypto
+
+import "lex-ag-ui/src/mount" as agui_mount
+
+import "lex-ag-ui/src/event" as ev
+
+import "../src/agui_adapter" as agui_adapter
+
 # ---- Provider selection --------------------------------------------
 fn get_env(key :: Str) -> [env] Str {
   match env.get(key) {
@@ -208,12 +220,47 @@ fn mcp_route(agent :: a2a.AgentDef) -> (ctx.Ctx) -> [io, time, crypto, random, s
   }
 }
 
+# ---- AG-UI streaming route ------------------------------------------
+# POST /agui/:thread_id, body {"text": "<goal>"} -> an AG-UI SSE stream
+# (lex-ag-ui) of the same trading-goal run make_handler executes, via
+# lex-oms-agent's own agui_adapter (see that file's header for exactly
+# why this can't reuse lex-ag-ui's lex-llm-Step bridge). Not token-level
+# streaming -- run_with_llm_history runs the whole loop to completion
+# before any event is available; see agui_adapter.lex.
+type AguiGoalBody = { text :: Str }
+
+fn agui_run(db :: conn.ConnDb, log :: trail_log.Log, provider :: prov.Provider, model :: prov.ModelRef) -> (ctx.Ctx) -> [io, time, crypto, random, sql, fs_read, fs_write, net, concurrent, llm, proc] Iter[ev.AguiEvent] {
+  fn (c :: ctx.Ctx) -> [io, time, crypto, random, sql, fs_read, fs_write, net, concurrent, llm, proc] Iter[ev.AguiEvent] {
+    let parsed :: Result[AguiGoalBody, Str] := json.parse(c.body)
+    let goal := match parsed {
+      Ok(b) => b.text,
+      Err(_) => "",
+    }
+    let thread_id := match map.get(c.path_params, "thread_id") {
+      Some(t) => t,
+      None => crypto.random_str_hex(8),
+    }
+    let run_id := crypto.random_str_hex(8)
+    let actx := { db: db, log: log, max_steps: 20, clock: ClockWall }
+    let decide := llm_decide.make_decide(provider, model, goal)
+    let ran := oms_agent.run_with_llm_history(actx, decide)
+    let result := match ran {
+      (r, _) => r,
+    }
+    let steps := match ran {
+      (_, s) => s,
+    }
+    iter.from_list(agui_adapter.from_history(result, steps, thread_id, run_id))
+  }
+}
+
 fn app(db :: conn.ConnDb, log :: trail_log.Log, provider :: prov.Provider, model :: prov.ModelRef) -> router.Router {
   let agent := make_agent(db, log, provider, model)
   let base := router.new()
   let with_mw := router.use_mw(router.use_mw(router.use_mw(router.use_mw(base, mw.body_limit(1048576)), mw.request_id()), mw.gzip(1024)), mw.logger())
   let with_a2a := mount.mount(with_mw, agent)
-  router.route_effectful(with_a2a, "POST", "/mcp", mcp_route(agent))
+  let with_mcp := router.route_effectful(with_a2a, "POST", "/mcp", mcp_route(agent))
+  agui_mount.add_to_events(with_mcp, "/agui/:thread_id", agui_run(db, log, provider, model))
 }
 
 fn handle(db :: conn.ConnDb, log :: trail_log.Log, provider :: prov.Provider, model :: prov.ModelRef, req :: Request) -> [io, time, crypto, random, sql, fs_read, fs_write, net, concurrent, llm, proc] Response {
