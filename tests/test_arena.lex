@@ -255,7 +255,16 @@ fn count_failures(results :: List[Result[Unit, Str]]) -> Int {
   })
 }
 
+# `lex test` discards run_all's return value and only checks whether the
+# call raises a runtime error -- see tests/test_agent.lex's comment.
+# Force a real runtime error when there are failures.
 fn run_all() -> [sql, time, crypto, fs_write] Int {
-  count_failures([t_verified_roundtrip(), t_tampered_rejected(), t_scenario_id_content_addressed(), t_pnl_from_trail(), t_notional_breach_rejected(), t_spread_cost(), t_slippage_convex(), t_fee_cost(), t_partial_fill()])
+  let failures := count_failures([t_verified_roundtrip(), t_tampered_rejected(), t_scenario_id_content_addressed(), t_pnl_from_trail(), t_notional_breach_rejected(), t_spread_cost(), t_slippage_convex(), t_fee_cost(), t_partial_fill()])
+  let _crash_if_failed := if failures > 0 {
+    1 / 0
+  } else {
+    0
+  }
+  failures
 }
 

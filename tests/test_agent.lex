@@ -86,8 +86,20 @@ fn suite_pure() -> List[Result[Unit, Str]] {
   [test_tool_name_submit(), test_tool_name_cancel(), test_tool_name_observe_blotter(), test_tool_name_done(), test_steps_taken_empty(), test_submitted_symbols_empty(), test_last_outcome_empty()]
 }
 
+# `lex test` discards run_all's return value and only checks whether the
+# call raises a runtime error (confirmed against lex-cli's
+# test_runner.rs source) -- a plain count_failures(...) return always
+# reports "pass" to lex test/lex ci, no matter how many assertions
+# actually fail. Force a real runtime error (integer division by zero,
+# confirmed to exit nonzero) when there are failures.
 fn run_all() -> Int {
-  count_failures(suite_pure())
+  let failures := count_failures(suite_pure())
+  let _crash_if_failed := if failures > 0 {
+    1 / 0
+  } else {
+    0
+  }
+  failures
 }
 
 # ---- Integration: scripted agent runs to GoalMet --------------------
