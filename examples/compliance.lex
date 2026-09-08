@@ -273,7 +273,7 @@ fn run_demo(db :: conn.ConnDb, log :: trail_log.Log, provider :: prov.Provider, 
   io.print(srv.get_audit(log, get_ctx()).body)
 }
 
-fn main() -> [sql, time, crypto, net, llm, io, env, fs_write, concurrent, random, fs_read, proc] Unit {
+fn main() -> [sql, time, crypto, net, llm, io, env, fs_write, concurrent, random, fs_read, proc, approval] Unit {
   let provider := select_provider()
   let model := select_model()
   match conn.connect_sqlite(":memory:") {
