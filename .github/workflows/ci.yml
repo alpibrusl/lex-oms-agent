@@ -39,7 +39,7 @@ jobs:
       - name: fmt
         run: lex fmt --check src tests
       - name: test
-        run: lex test --allow-effects io,time,crypto,random,sql,fs_read,fs_write,net,concurrent,llm,proc tests/
+        run: lex test --allow-effects io,time,crypto,random,sql,fs_read,fs_write,net,concurrent,llm,proc,approval tests/
       - name: ACLI surface (introspect is valid JSON; skill emits frontmatter)
         run: |
           set -euo pipefail
