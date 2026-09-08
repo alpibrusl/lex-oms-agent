@@ -152,6 +152,7 @@ fn collect_deltas(deltas :: List[d.Delta]) -> CollectedResponse {
         }
         { content: acc.content, calls: list.reverse(acc.calls), finish_reason: actual }
       },
+      UsageDelta(_) => acc,
     }
   })
 }

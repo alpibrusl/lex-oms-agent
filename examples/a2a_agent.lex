@@ -176,8 +176,8 @@ fn get_ctx() -> { method :: Str, path :: Str, query :: Str, body :: Str, path_pa
   { method: "GET", path: "/", query: "", body: "", path_params: map.new(), headers: map.new(), state: map.new() }
 }
 
-fn make_handler(db :: conn.ConnDb, log :: trail_log.Log, provider :: prov.Provider, model :: prov.ModelRef) -> (msg.Message) -> [io, time, crypto, random, sql, fs_read, fs_write, net, concurrent, llm, proc] a2a.HandlerOutcome {
-  fn (m :: msg.Message) -> [io, time, crypto, random, sql, fs_read, fs_write, net, concurrent, llm, proc] a2a.HandlerOutcome {
+fn make_handler(db :: conn.ConnDb, log :: trail_log.Log, provider :: prov.Provider, model :: prov.ModelRef) -> (msg.Message) -> [io, time, crypto, random, sql, fs_read, fs_write, net, concurrent, llm, proc, approval] a2a.HandlerOutcome {
+  fn (m :: msg.Message) -> [io, time, crypto, random, sql, fs_read, fs_write, net, concurrent, llm, proc, approval] a2a.HandlerOutcome {
     let goal := first_text(m.parts)
     let ctx := { db: db, log: log, max_steps: 20, clock: ClockWall }
     let decide := llm_decide.make_decide(provider, model, goal)
@@ -209,8 +209,8 @@ fn make_agent(db :: conn.ConnDb, log :: trail_log.Log, provider :: prov.Provider
 # applies to both transports because they share this router.
 # (We compose on the router instead of `lex-mcp`'s `serve_both` precisely to keep
 # that middleware stack; serve_both is the std.net-only path for the simple case.)
-fn mcp_route(agent :: a2a.AgentDef) -> (ctx.Ctx) -> [io, time, crypto, random, sql, fs_read, fs_write, net, concurrent, llm, proc] resp.Response {
-  fn (c :: ctx.Ctx) -> [io, time, crypto, random, sql, fs_read, fs_write, net, concurrent, llm, proc] resp.Response {
+fn mcp_route(agent :: a2a.AgentDef) -> (ctx.Ctx) -> [io, time, crypto, random, sql, fs_read, fs_write, net, concurrent, llm, proc, approval] resp.Response {
+  fn (c :: ctx.Ctx) -> [io, time, crypto, random, sql, fs_read, fs_write, net, concurrent, llm, proc, approval] resp.Response {
     let out := mcp_server.handle_message(agent, wbody.raw_body(c))
     if str.is_empty(out) {
       { status: 202, body: "", headers: map.from_list([("content-type", "application/json")]) }
@@ -229,8 +229,8 @@ fn mcp_route(agent :: a2a.AgentDef) -> (ctx.Ctx) -> [io, time, crypto, random, s
 # before any event is available; see agui_adapter.lex.
 type AguiGoalBody = { text :: Str }
 
-fn agui_run(db :: conn.ConnDb, log :: trail_log.Log, provider :: prov.Provider, model :: prov.ModelRef) -> (ctx.Ctx) -> [io, time, crypto, random, sql, fs_read, fs_write, net, concurrent, llm, proc] Iter[ev.AguiEvent] {
-  fn (c :: ctx.Ctx) -> [io, time, crypto, random, sql, fs_read, fs_write, net, concurrent, llm, proc] Iter[ev.AguiEvent] {
+fn agui_run(db :: conn.ConnDb, log :: trail_log.Log, provider :: prov.Provider, model :: prov.ModelRef) -> (ctx.Ctx) -> [io, time, crypto, random, sql, fs_read, fs_write, net, concurrent, llm, proc, approval] Iter[ev.AguiEvent] {
+  fn (c :: ctx.Ctx) -> [io, time, crypto, random, sql, fs_read, fs_write, net, concurrent, llm, proc, approval] Iter[ev.AguiEvent] {
     let parsed :: Result[AguiGoalBody, Str] := json.parse(c.body)
     let goal := match parsed {
       Ok(b) => b.text,
@@ -263,7 +263,7 @@ fn app(db :: conn.ConnDb, log :: trail_log.Log, provider :: prov.Provider, model
   agui_mount.add_to_events(with_mcp, "/agui/:thread_id", agui_run(db, log, provider, model))
 }
 
-fn handle(db :: conn.ConnDb, log :: trail_log.Log, provider :: prov.Provider, model :: prov.ModelRef, req :: Request) -> [io, time, crypto, random, sql, fs_read, fs_write, net, concurrent, llm, proc] Response {
+fn handle(db :: conn.ConnDb, log :: trail_log.Log, provider :: prov.Provider, model :: prov.ModelRef, req :: Request) -> [io, time, crypto, random, sql, fs_read, fs_write, net, concurrent, llm, proc, approval] Response {
   let raw := { body: req.body, method: req.method, path: req.path, query: req.query, headers: req.headers }
   let r := router.dispatch(app(db, log, provider, model), raw)
   { status: r.status, body: BodyStr(r.body), headers: r.headers }
@@ -273,7 +273,7 @@ fn err_response(msg_str :: Str) -> Response {
   { status: 500, body: BodyStr(msg_str), headers: map.new() }
 }
 
-fn main() -> [net, io, time, crypto, random, sql, fs_read, fs_write, concurrent, llm, proc, env] Nil {
+fn main() -> [net, io, time, crypto, random, sql, fs_read, fs_write, concurrent, llm, proc, env, approval] Nil {
   let provider := select_provider()
   let model := select_model()
   match conn.connect_sqlite(":memory:") {
@@ -295,7 +295,7 @@ fn main() -> [net, io, time, crypto, random, sql, fs_read, fs_write, concurrent,
         let __msg1 := io.print("lex-oms-agent listening on :4041 (A2A + MCP)")
         let __msg2 := io.print("AgentCard: http://localhost:4041/.well-known/agent.json")
         let __msg3 := io.print("MCP tools: POST http://localhost:4041/mcp")
-        net.serve_fn(4041, fn (req :: Request) -> [io, time, crypto, random, sql, fs_read, fs_write, net, concurrent, llm, proc] Response {
+        net.serve_fn(4041, fn (req :: Request) -> [io, time, crypto, random, sql, fs_read, fs_write, net, concurrent, llm, proc, approval] Response {
           handle(db, log, provider, model, req)
         })
       },

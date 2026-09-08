@@ -180,7 +180,7 @@ fn run_demo(db :: conn.ConnDb, log :: trail_log.Log, provider :: prov.Provider, 
   io.print(srv.get_audit(log, get_ctx()).body)
 }
 
-fn main() -> [sql, time, crypto, net, llm, io, env, fs_write, concurrent, random, fs_read, proc] Unit {
+fn main() -> [sql, time, crypto, net, llm, io, env, fs_write, concurrent, random, fs_read, proc, approval] Unit {
   let vertex_proj := get_env("VERTEX_PROJECT")
   let anth_key := get_env("ANTHROPIC_API_KEY")
   let has_vertex := get_env("LLM_PROVIDER") == "vertex" or not str.is_empty(vertex_proj)
